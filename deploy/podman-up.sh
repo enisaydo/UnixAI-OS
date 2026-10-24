@@ -26,7 +26,7 @@ chmod 600 .env
 mkdir -p logs data
 
 install -d -m 700 /root/.ssh
-[[ -f /root/.ssh/unixai_ed25519 ]] || ssh-keygen -q -t ed25519 -N "" -f /root/.ssh/unixai_ed25519 -C "unixai@$(hostname -s)"
+[[ -f /root/.ssh/unixai_ed25519 ]] || ssh-keygen -q -t ed25519 -N "" -f /root/.ssh/unixai_ed25519 -C "root@$(hostname -s) unixai-os"
 touch /root/.ssh/known_hosts
 
 PORT="${HOST_PORT:-$(grep -E '^HOST_PORT=' .env | tail -n1 | cut -d= -f2 | tr -d '[:space:]"'"'" || true)}"

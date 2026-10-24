@@ -37,7 +37,7 @@ chmod 700 "$APP/data" "$APP/logs"
 
 echo "==> root SSH anahtarı (hedeflerde /root/.ssh/authorized_keys'e eklenecek)"
 install -d -m 700 /root/.ssh
-[[ -f /root/.ssh/unixai_ed25519 ]] || ssh-keygen -q -t ed25519 -N "" -f /root/.ssh/unixai_ed25519 -C "unixai@$(hostname -s)"
+[[ -f /root/.ssh/unixai_ed25519 ]] || ssh-keygen -q -t ed25519 -N "" -f /root/.ssh/unixai_ed25519 -C "root@$(hostname -s) unixai-os"
 chmod 600 /root/.ssh/unixai_ed25519
 touch /root/.ssh/known_hosts && chmod 644 /root/.ssh/known_hosts
 

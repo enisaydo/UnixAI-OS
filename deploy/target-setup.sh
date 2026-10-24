@@ -1,6 +1,6 @@
 #!/bin/bash
 # Hedef RHEL sunucuda root ile calistirin: merkezi UnixAI sunucusunun root SSH anahtarini yetkilendirir.
-# Kullanim: bash target-setup.sh "ssh-ed25519 AAAA... unixai@merkez" [MERKEZ_IP]
+# Kullanim: bash target-setup.sh "ssh-ed25519 AAAA... root@merkez unixai-os" [MERKEZ_IP]
 #   MERKEZ_IP verilirse anahtar sadece o adresten kullanilabilir (onerilir).
 # Ansible ile: ansible all -b -m script -a "target-setup.sh '<pubkey>' 10.10.0.5"
 set -euo pipefail
