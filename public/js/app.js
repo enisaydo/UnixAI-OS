@@ -72,7 +72,7 @@ const pctCell = (v, warn, crit) =>
 /* ================================================================== */
 /*  Router                                                             */
 /* ================================================================== */
-const ROUTES = ["dashboard", "server", "runs", "collected", "ask", "agent", "servers", "usage", "logs", "settings"];
+const ROUTES = ["dashboard", "server", "runs", "collected", "ask", "agent", "servers", "usage", "logs", "audit", "settings"];
 
 function route() {
   const [name, ...rest] = location.hash.replace(/^#\/?/, "").split("/");
@@ -92,6 +92,7 @@ function route() {
   if (r === "servers") loadInventory();
   if (r === "agent") loadAgentPage();
   if (r === "logs") loadLogs();
+  if (r === "audit") loadAudit();
   if (r === "usage") loadUsage();
   if (r === "settings") loadSettingsPage();
   setLogAuto(r === "logs" && $("#logAuto").checked);
@@ -1307,7 +1308,7 @@ function toggleTheme() {
 const PAGES = [
   ["dashboard", "Genel Bakış", "dashboard"], ["runs", "Toplama & Analiz", "refresh"], ["collected", "Gelen Loglar", "logs"],
   ["ask", "UnixAI Ajanı", "chat"], ["agent", "Ajan & MCP", "sparkles"], ["servers", "Sunucular", "servers"], ["usage", "Token Kullanımı", "chart"],
-  ["logs", "AI Logları", "file"], ["settings", "Ayarlar", "sliders"],
+  ["logs", "AI Logları", "file"], ["audit", "İşlem Kayıtları", "list"], ["settings", "Ayarlar", "sliders"],
 ];
 const Palette = { items: [], sel: 0 };
 
@@ -1620,11 +1621,78 @@ function bindAgentPage() {
   $("#convTable").onclick = (e) => { const tr = e.target.closest("[data-conv]"); if (tr) showConversation(tr.dataset.conv); };
 }
 
+/* ================================================================== */
+/*  İşlem kayıtları                                                    */
+/* ================================================================== */
+State.auditDays = 7;
+const SOURCE_LABEL = { "arayüz": ["Arayüz", ""], api: ["API", "gold"], mcp: ["MCP", "blue"] };
+
+async function loadAudit() {
+  const to = new Date(), from = new Date();
+  from.setDate(to.getDate() - (State.auditDays - 1));
+  try {
+    const r = await Api.audit({ from: isoDay(from), to: isoDay(to), user: $("#auditUser").value, q: $("#auditQ").value.trim(), failed: $("#auditFailed").checked ? "1" : "" });
+    State.audit = r;
+    const us = $("#auditUser"), cur = us.value;
+    us.innerHTML = `<option value="">Tüm kullanıcılar</option>` + r.users.map((u) => `<option>${esc(u)}</option>`).join("");
+    us.value = r.users.includes(cur) ? cur : "";
+    $("#auditCount").textContent = `${r.total} kayıt${r.failed ? ` · ${r.failed} hatalı` : ""}`;
+    $("#auditTable").innerHTML = `<tr><th>Zaman</th><th>Kullanıcı</th><th>Kaynak</th><th>İşlem</th><th>Ayrıntı</th><th>Sonuç</th><th class="num">Süre</th></tr>` +
+      (r.records.map((x, i) => {
+        const [sl, sc] = SOURCE_LABEL[x.source] || [x.source, ""];
+        const det = Object.entries(x.detail || {}).map(([k, v]) => `<span class="kvp"><span class="muted">${esc(k)}</span> ${esc(typeof v === "object" ? JSON.stringify(v) : v)}</span>`).join(" ");
+        return `<tr class="clickable" data-audit="${i}"><td class="mono t-sub">${esc(fmtTime(x.time))}</td>
+          <td><div class="t-name">${esc(x.user)}</div><div class="t-sub mono">${esc(x.ip || "")}</div></td>
+          <td><span class="label ${sc}">${esc(sl)}</span></td><td>${esc(x.action)}</td><td class="ev-cell sm">${det || "—"}</td>
+          <td>${x.ok ? `<span class="status-ok">✓ ${x.status}</span>` : `<span class="status-err" title="${esc(x.error || "")}">✕ ${x.status ?? ""}</span>${x.error ? `<div class="t-sub status-err">${esc(x.error.slice(0, 120))}</div>` : ""}`}</td>
+          <td class="num t-sub">${fmtDur(x.durationMs)}</td></tr>`;
+      }).join("") || `<tr><td colspan="7" class="muted">Bu aralıkta işlem kaydı yok.</td></tr>`);
+  } catch (e) { $("#auditTable").innerHTML = `<tr><td>${errorView(e)}</td></tr>`; }
+}
+
+function showAudit(i) {
+  const x = State.audit?.records[i];
+  if (!x) return;
+  modal(x.action, `<dl class="kv">
+    <dt>Zaman</dt><dd>${esc(fmtTime(x.time))}</dd><dt>Kullanıcı</dt><dd>${esc(x.user)} · ${esc(x.ip || "")}</dd>
+    <dt>Kaynak</dt><dd>${esc(x.source)}</dd><dt>İstek</dt><dd class="mono">${esc(x.method)} ${esc(x.path)}</dd>
+    <dt>Sonuç</dt><dd class="${x.ok ? "status-ok" : "status-err"}">${x.status ?? "—"} · ${fmtDur(x.durationMs)}</dd>
+    ${x.error ? `<dt>Hata</dt><dd class="status-err">${esc(x.error)}</dd>` : ""}</dl>
+    <div class="sub-h">Ayrıntı</div><pre class="code-block">${esc(JSON.stringify(x.detail || {}, null, 2))}</pre>`);
+}
+
+function auditCsv() {
+  const r = State.audit;
+  if (!r) return;
+  const q = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const lines = [["zaman", "kullanici", "ip", "kaynak", "islem", "istek", "ayrinti", "durum", "hata", "sure_ms"].join(";"),
+    ...r.records.map((x) => [x.time, x.user, x.ip, x.source, x.action, `${x.method} ${x.path}`, JSON.stringify(x.detail || {}), x.status, x.error, x.durationMs].map(q).join(";"))];
+  download(`unixai-islem-kayitlari-${r.from}_${r.to}.csv`, "\ufeff" + lines.join("\n"), "text/csv;charset=utf-8");
+}
+
+function bindAudit() {
+  $("#auditRange").onclick = (e) => {
+    const b = e.target.closest("[data-days]");
+    if (!b) return;
+    State.auditDays = Number(b.dataset.days);
+    $$("#auditRange button").forEach((x) => x.classList.toggle("on", x === b));
+    loadAudit();
+  };
+  let t;
+  $("#auditQ").oninput = () => { clearTimeout(t); t = setTimeout(loadAudit, 300); };
+  $("#auditUser").onchange = loadAudit;
+  $("#auditFailed").onchange = loadAudit;
+  $("#auditRefresh").onclick = loadAudit;
+  $("#auditCsv").onclick = auditCsv;
+  $("#auditTable").onclick = (e) => { const tr = e.target.closest("[data-audit]"); if (tr) showAudit(+tr.dataset.audit); };
+}
+
 function bindEvents() {
   addEventListener("hashchange", route);
   $("#menuBtn").onclick = () => $("#sidebar").classList.toggle("open");
   $("#modalClose").onclick = closeModal;
-  $("#modal").onclick = (e) => e.target.id === "modal" && closeModal();
+  // Not: onclick işleyicisi false döndürürse tarayıcı tıklamayı iptal eder (modal içindeki submit düğmeleri çalışmaz)
+  $("#modal").onclick = (e) => { if (e.target.id === "modal") closeModal(); };
   addEventListener("keydown", (e) => { if (e.key === "Escape") { closeModal(); closePalette(); } });
 
   document.addEventListener("click", (e) => {
@@ -1661,6 +1729,7 @@ function bindEvents() {
   }));
   bindPalette();
   bindAgentPage();
+  bindAudit();
   $("#dashCollect").onclick = (e) => startRun("collect", e.target);
   $("#dashReanalyze").onclick = (e) => startRun("reanalyze", e.target);
 
@@ -1710,7 +1779,7 @@ function bindEvents() {
   });
   ct.addEventListener("input", () => { ct.style.height = "auto"; ct.style.height = ct.scrollHeight + "px"; });
   $("#chatSuggest").innerHTML = SUGGESTIONS.map((s) => `<button type="button">${esc(s)}</button>`).join("");
-  $("#chatSuggest").onclick = (e) => e.target.matches("button") && sendChat(e.target.textContent);
+  $("#chatSuggest").onclick = (e) => { if (e.target.matches("button")) sendChat(e.target.textContent); };
   $("#chatClear").onclick = resetChat;
 
   // envanter

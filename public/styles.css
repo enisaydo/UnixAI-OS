@@ -624,3 +624,7 @@ svg.i.i-xs { width: 13px; height: 13px; vertical-align: -2px; }
 .amap-core small { color: var(--muted); }
 .amap-arrow { color: var(--muted); font: 12px var(--mono); white-space: nowrap; }
 @media (max-width: 1100px) { .amap { grid-template-columns: 1fr; } .amap-arrow { text-align: center; } }
+
+/* ---- işlem kayıtları ---- */
+.kvp { display: inline-block; margin: 1px 8px 1px 0; font-size: 12px; }
+.kvp .muted { font-size: 11px; }

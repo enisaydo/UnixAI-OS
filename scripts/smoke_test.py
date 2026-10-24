@@ -181,6 +181,10 @@ def main():
             "UNIXAI_SSH_BIN": sys.executable, "UNIXAI_SSH_PREFIX": json.dumps([str(ROOT / "scripts" / "fake_ssh.py")]),
             "TEST_TMS_SECRET": "env-secret-xyz", "PYTHONIOENCODING": "utf-8", "UNIXAI_API_TOKEN": "unixai-mcp-token-1234567890"}
     app = subprocess.Popen([sys.executable, "server.py"], cwd=ROOT, env=envs, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    # Sunucu çıktısı sürekli okunur: aksi halde pipe arabelleği dolunca sunucu yazarken bloke olur
+    app_out = []
+    drain = threading.Thread(target=lambda: [app_out.append(c) for c in iter(lambda: app.stdout.read(4096), b"")], daemon=True)
+    drain.start()
     cookie = [""]
 
     def api(path, body=None, method=None):
@@ -415,6 +419,21 @@ def main():
         check("kendisi__unixai_agent_ask" in seen["agent_tools"][-1], "hop 0'da uzak agent_ask aracı açık")
         api(f"/mcp/connections/{cn['id']}", method="DELETE")
 
+        print("\nİşlem kayıtları")
+        au = api("/audit?from=2000-01-01")[1]
+        acts = [r["action"] for r in au["records"]]
+        check("Sunucular toplu eklendi" in acts and "GenAI bağlantısı kaydedildi" in acts and "Çalıştırma başlatıldı" in acts, "arayüz işlemleri kaydedildi")
+        logins = [r for r in au["records"] if r["action"] == "Giriş"]
+        check(any(not r["ok"] and r["user"] == "admin" for r in logins) and any(r["ok"] for r in logins), "başarılı ve hatalı giriş denemeleri kaydedildi")
+        bad = next(r for r in au["records"] if r["action"] == "Sunucu kaydedildi" and not r["ok"])
+        check(bad["status"] == 400 and "Geçersiz adres" in (bad["error"] or ""), "başarısız işlem hata mesajıyla kaydedildi")
+        mcp_rows = [r for r in au["records"] if r["source"] == "mcp"]
+        check(any(r["user"] == "mcp:ekip-x" and r["action"] == "MCP araç çağrısı: unixai_run_collection" and not r["ok"] for r in mcp_rows),
+              "başka ajanın MCP araç çağrısı (reddedilen dahil) kaydedildi")
+        raw = "".join(x.read_text(encoding="utf-8") for x in Path(data_dir, "audit").glob("*.jsonl"))
+        check(not any(sec in raw for sec in ("S3cret-test", "very-secret", "morpheus-api-token-123456", full, ro)), "işlem kayıtlarında parola/token yok")
+        check(api("/audit?q=srv1&failed=1")[0] == 200, "işlem kayıtları filtrelenebiliyor")
+
         print("\nDemo ve ayarlar")
         api("/limits", {"dailyLimit": 0, "perUserDailyLimit": 0})
         check(api("/settings", {"schedule": {"time": "25:99"}})[0] == 400, "geçersiz saat reddedildi")
@@ -434,9 +453,11 @@ def main():
     finally:
         app.terminate()
         try:
-            out = app.communicate(timeout=5)[0].decode("utf-8", "replace")
+            app.wait(timeout=5)
         except Exception:
-            out = ""
+            app.kill()
+        drain.join(timeout=5)
+        out = b"".join(app_out).decode("utf-8", "replace")
         if failures:
             print("\n--- sunucu çıktısı ---\n" + out[-4000:])
         gw.shutdown()

@@ -16,6 +16,7 @@ import os
 import re
 import signal
 import sys
+import time
 import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -25,7 +26,7 @@ from unixai.env import ROOT, env, load_env
 
 load_env()
 
-from unixai import (agent, analyzer, auth, collector, connection, demo, diagnostics, genai, inventory,  # noqa: E402
+from unixai import (agent, analyzer, audit, auth, collector, connection, demo, diagnostics, genai, inventory,  # noqa: E402
                     logger, mcp_hub, morpheus, prompts, runs, settings, usage)
 from unixai.errors import ApiError  # noqa: E402
 
@@ -147,6 +148,9 @@ class Handler(BaseHTTPRequestHandler):
         return (self.headers.get("x-forwarded-for") or self.client_address[0]).split(",")[0].strip()
 
     def send_json(self, code: int, data, extra_headers=None):
+        self._status = code
+        if code >= 400 and isinstance(data, dict):
+            self._error = data.get("error") if isinstance(data.get("error"), str) else (data.get("error") or {}).get("message")
         body = json.dumps(data, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", MIME[".json"])
@@ -214,10 +218,21 @@ class Handler(BaseHTTPRequestHandler):
             msg = None
         if msg is None:
             return self.send_json(400, {"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "Parse error"}}, cors)
+        t0 = time.monotonic()
         if isinstance(msg, list):
             out = [r for r in (mcp_hub.handle_rpc(m, principal) for m in msg) if r]
         else:
             out = mcp_hub.handle_rpc(msg, principal)
+        for m, r in zip(msg if isinstance(msg, list) else [msg], out if isinstance(out, list) else [out]):
+            if isinstance(m, dict) and m.get("method") == "tools/call" and isinstance(r, dict):
+                p = m.get("params") or {}
+                args = p.get("arguments") or {}
+                failed = bool((r.get("result") or {}).get("isError")) or "error" in r
+                err = ((r.get("result") or {}).get("content") or [{}])[0].get("text") if failed and r.get("result") else (r.get("error") or {}).get("message")
+                audit.record(f"mcp:{principal['client']}", self.client_ip(), "MCP", f"/mcp {p.get('name')}", 400 if failed else 200,
+                             int((time.monotonic() - t0) * 1000), f"MCP araç çağrısı: {p.get('name')}",
+                             {k: (str(v)[:200] if isinstance(v, str) else v) for k, v in args.items() if k in ("server", "check", "question", "actionIndex", "servers", "mode", "id")},
+                             err if failed else None, source="mcp")
         if not out:
             self.send_response(202)
             for k, v in cors.items():
@@ -229,6 +244,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def dispatch(self):
         url = urlsplit(self.path)
+        self._t0, self._status, self._error, self._actor, self._body = time.monotonic(), None, None, None, None
         try:
             if url.path == "/mcp":
                 return self.handle_mcp()
@@ -243,6 +259,21 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:
             traceback.print_exc()
             self.send_json(502, {"error": str(e)})
+        finally:
+            self.audit(url.path)
+
+    def audit(self, path):
+        """Durum değiştiren API istekleri ve sunucu hataları İşlem Kayıtları'na yazılır"""
+        if not path.startswith("/api/") or (self.command == "GET" and (self._status or 0) < 500) or self.command == "OPTIONS":
+            return
+        try:
+            label, detail = audit.describe(self.command, path, self._body)
+            user = self._actor or (unquote(self.headers.get("x-unixai-user") or "").strip()[:80] or None)
+            audit.record(user or f"anonim ({self.client_ip()})", self.client_ip(), self.command, path, self._status,
+                         int((time.monotonic() - self._t0) * 1000), label, detail, self._error,
+                         source="api" if (self.headers.get("authorization") or "").lower().startswith("bearer") else "arayüz")
+        except Exception as e:  # kayıt hatası isteği bozmasın
+            print(f"[işlem] kayıt hatası: {e}", flush=True)
 
     # ---------------- API ----------------
     def handle_api(self, url):
@@ -256,6 +287,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(400, {"error": "Geçersiz JSON gövdesi"})
         if not isinstance(body, dict):
             body = {}
+        self._body = body
         path, method = url.path, self.command
         route = f"{method} {path}"
         qs = {k: v[0] for k, v in parse_qs(url.query).items()}
@@ -266,6 +298,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(401, {"error": "Geçersiz API token"})
         session = api or (auth.read_session(self.headers.get("cookie", "")) if auth.is_enabled() else None)
         if route == "POST /api/auth/login":
+            self._actor = str(body.get("username") or "")[:80] or None
             if not auth.is_enabled():
                 return self.send_json(400, {"error": "Giriş etkin değil"})
             user = auth.authenticate(body.get("username"), body.get("password"), self.client_ip())
@@ -285,6 +318,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(403, {"error": "Bu işlem için yönetici yetkisi gerekiyor (LDAP yönetici grubu)"})
 
         who = self.who(session)
+        self._actor = who["user"]
         j = self.send_json
 
         if route == "GET /api/health":
@@ -373,6 +407,8 @@ class Handler(BaseHTTPRequestHandler):
             return j(200, mcp_hub.connections_view())
         if route == "POST /api/mcp/connections":
             return j(200, mcp_hub.save_connection(body, who["user"]))
+        if route == "GET /api/audit":
+            return j(200, audit.query(qs.get("from"), qs.get("to"), qs.get("user"), qs.get("q"), qs.get("failed") == "1"))
         if route == "GET /api/diagnostics":
             return j(200, diagnostics.catalog())
 

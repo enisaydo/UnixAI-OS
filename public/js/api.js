@@ -89,6 +89,7 @@ const Api = (() => {
     savePrompts: (system) => request("/prompts", { method: "POST", body: { system } }),
 
     logs: () => request("/logs?limit=200"),
+    audit: (q = {}) => request(`/audit?${qs(q)}`),
     log: (id) => request(`/logs/${enc(id)}`),
     usage: (q = {}) => request(`/usage?${qs(q)}`),
     usageToday: () => request("/usage/today"),
@@ -121,6 +122,7 @@ POST /api/chat                   ← { messages, context? }  → ajan: { reply, 
 GET  /api/agent/conversations[/:id]   GET|POST /api/agent/settings   GET /api/mcp/server
 POST /api/mcp/tokens  ← { name, readonly }  → { token } (bir kez)     POST /api/mcp/origins ← { allowedOrigins[] }
 GET|POST /api/mcp/connections   POST /api/mcp/connections/:id/test   POST /api/servers/:name/diagnostic ← { check, params }
+GET  /api/audit?from=&to=&user=&q=&failed=1  → işlem kayıtları (kim, ne zaman, ne yaptı, sonuç)
 GET  /api/connection             → GenAI bağlantısı (gizli alanlar maskeli)
 POST /api/connection             ← { tms: { url, method, body, headers[] }, chat: { url, model, modelField, headers[], bodyExtra }, insecureTls, timeoutMs }
 POST /api/connection/test        ← { step: "token"|"chat" }   → { token: { ok }, chat?: { ok, reply } }

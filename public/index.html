@@ -43,6 +43,7 @@
       <a href="#/servers" data-route="servers"><svg class="i" data-icon="servers"></svg>Sunucular</a>
       <a href="#/usage" data-route="usage"><svg class="i" data-icon="chart"></svg>Token Kullanımı</a>
       <a href="#/logs" data-route="logs"><svg class="i" data-icon="file"></svg>AI Logları</a>
+      <a href="#/audit" data-route="audit"><svg class="i" data-icon="list"></svg>İşlem Kayıtları</a>
       <a href="#/settings" data-route="settings"><svg class="i" data-icon="sliders"></svg>Ayarlar</a>
       <div class="nav-foot" id="navFoot"></div>
     </nav>
@@ -295,6 +296,31 @@
         </div>
         <div class="card">
           <div class="table-wrap"><table class="table" id="logTable"></table></div>
+        </div>
+      </section>
+
+      <!-- ---------- İŞLEM KAYITLARI ---------- -->
+      <section class="view" data-view="audit">
+        <div class="page-head">
+          <div><h1>İşlem Kayıtları</h1><p>Arayüzden, API'den ve başka ajanlardan (MCP) yapılan her değişiklik: kim, ne zaman, hangi IP'den, ne yaptı, sonuç. Parola ve token değerleri kaydedilmez.</p></div>
+          <div class="toolbar">
+            <button class="btn" id="auditCsv"><svg class="i" data-icon="download"></svg>CSV indir</button>
+            <button class="btn" id="auditRefresh"><svg class="i" data-icon="refresh"></svg>Yenile</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="toolbar">
+            <div class="seg" id="auditRange">
+              <button data-days="1">Bugün</button>
+              <button data-days="7" class="on">7 gün</button>
+              <button data-days="30">30 gün</button>
+            </div>
+            <select id="auditUser" class="input sm"><option value="">Tüm kullanıcılar</option></select>
+            <input id="auditQ" class="input sm" placeholder="Ara: sunucu, işlem, IP…" />
+            <label class="check sm"><input type="checkbox" id="auditFailed" /> Yalnızca hatalılar</label>
+            <span class="muted sm" id="auditCount"></span>
+          </div>
+          <div class="table-wrap"><table class="table" id="auditTable"></table></div>
         </div>
       </section>
 
