@@ -61,6 +61,18 @@ const Api = (() => {
     collected: () => request("/collected"),
 
     chat: ({ messages, context }) => request("/chat", { method: "POST", body: { messages, context } }),
+    agentSettings: () => request("/agent/settings"),
+    saveAgentSettings: (s) => request("/agent/settings", { method: "POST", body: s }),
+    conversations: () => request("/agent/conversations"),
+    conversation: (id) => request(`/agent/conversations/${enc(id)}`),
+    mcpServer: () => request("/mcp/server"),
+    createMcpToken: (name, readonly) => request("/mcp/tokens", { method: "POST", body: { name, readonly } }),
+    deleteMcpToken: (id) => request(`/mcp/tokens/${enc(id)}`, { method: "DELETE", body: {} }),
+    saveMcpOrigins: (allowedOrigins) => request("/mcp/origins", { method: "POST", body: { allowedOrigins } }),
+    mcpConnections: () => request("/mcp/connections"),
+    saveMcpConnection: (c) => request("/mcp/connections", { method: "POST", body: c }),
+    deleteMcpConnection: (id) => request(`/mcp/connections/${enc(id)}`, { method: "DELETE", body: {} }),
+    testMcpConnection: (id) => request(`/mcp/connections/${enc(id)}/test`, { method: "POST", body: {} }),
 
     morpheus: () => request("/integrations/morpheus"),
     saveMorpheus: (m) => request("/integrations/morpheus", { method: "POST", body: m }),
@@ -104,6 +116,11 @@ GET|POST /api/integrations/morpheus   ← { url, token, targetField: name|host, 
 POST /api/remediations           ← { server, actionIndex }  → MorpheusAI'de standartlara uygun düzeltme playbook'u
 GET  /api/remediations[?server=] → gönderilen düzeltmeler ve MorpheusAI'deki güncel durum
      Servisler arası / MCP: Authorization: Bearer <UNIXAI_API_TOKEN>
+POST /mcp                        ← MCP (Streamable HTTP, JSON-RPC: initialize, tools/list, tools/call)  Authorization: Bearer <MCP token>
+POST /api/chat                   ← { messages, context? }  → ajan: { reply, trace[], conversationId, mode }
+GET  /api/agent/conversations[/:id]   GET|POST /api/agent/settings   GET /api/mcp/server
+POST /api/mcp/tokens  ← { name, readonly }  → { token } (bir kez)     POST /api/mcp/origins ← { allowedOrigins[] }
+GET|POST /api/mcp/connections   POST /api/mcp/connections/:id/test   POST /api/servers/:name/diagnostic ← { check, params }
 GET  /api/connection             → GenAI bağlantısı (gizli alanlar maskeli)
 POST /api/connection             ← { tms: { url, method, body, headers[] }, chat: { url, model, modelField, headers[], bodyExtra }, insecureTls, timeoutMs }
 POST /api/connection/test        ← { step: "token"|"chat" }   → { token: { ok }, chat?: { ok, reply } }

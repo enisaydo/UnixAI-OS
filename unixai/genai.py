@@ -165,6 +165,47 @@ def invalidate() -> None:
 # ------------------------------------------------------------------
 #  Chat completions
 # ------------------------------------------------------------------
+def complete(messages: list, tools=None, model=None, kind: str = "agent", server=None) -> dict:
+    """Araç destekli ham çağrı (ajan döngüsü için). tools: OpenAI biçimli function listesi.
+    Dönen: {message: {role, content, tool_calls?}, finishReason, usage, model, logId}
+    HTTP hatasında GenAIError (status alanıyla; ajan 'tools' desteklenmiyorsa JSON moduna geçer)."""
+    c = _config()
+    ch = c["chat"]
+    if not valid_url(ch["url"]):
+        raise GenAIError("Chat/completions adresi tanımlı değil (Ayarlar → GenAI bağlantısı)")
+    model = model or ch.get("model")
+    payload = {**({ch.get("modelField") or "model": model} if model else {}), "messages": messages, **ch["bodyExtra"]}
+    if tools:
+        payload["tools"] = tools
+        payload["tool_choice"] = "auto"
+    body = json.dumps(payload, ensure_ascii=False)
+
+    def send(token):
+        headers = {k: fill(v, token=token) for k, v in ch["headers"].items()}
+        headers[ch["authHeader"].lower()] = ch["authPrefix"] + token
+        return request("genai", kind, ch["url"], method="POST", headers=headers, body=body, insecure_tls=c["insecureTls"],
+                       timeout_ms=c["timeoutMs"], tls_hint=TLS_HINT,
+                       meta_fn=lambda r: {"usage": (r["json"] or {}).get("usage"), "finishReason": get_path(r["json"], "choices.0.finish_reason"),
+                                          "model": (r["json"] or {}).get("model"), "server": server, "tools": len(tools or [])})
+
+    res = send(get_token())
+    if res["status"] in (401, 403):
+        res = send(get_token(force=True))
+    j = res["json"] if isinstance(res["json"], dict) else {}
+    if res["status"] >= 400:
+        e = GenAIError(f"Chat isteği başarısız (HTTP {res['status']}): {res['text'][:400]}", usage=j.get("usage"), log_id=res["logId"])
+        e.status = res["status"]
+        raise e
+    msg = get_path(j, "choices.0.message")
+    if not isinstance(msg, dict):
+        # özel cevap yolu kullanan gateway'ler: yalnızca metin
+        reply = get_path(j, ch.get("replyPath") or "choices.0.message.content")
+        if not isinstance(reply, str):
+            raise GenAIError(f"Yanıtta mesaj bulunamadı. Yanıt: {res['text'][:300]}", usage=j.get("usage"), log_id=res["logId"])
+        msg = {"role": "assistant", "content": reply}
+    return {"message": msg, "finishReason": get_path(j, "choices.0.finish_reason"), "usage": j.get("usage"), "model": j.get("model"), "logId": res["logId"]}
+
+
 def chat(messages: list, model=None, kind: str = "chat", server=None) -> dict:
     """Dönen: {content, usage, model, logId}. Hata durumunda GenAIError (usage / log_id dolu olabilir)."""
     c = _config()

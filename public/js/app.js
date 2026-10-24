@@ -72,7 +72,7 @@ const pctCell = (v, warn, crit) =>
 /* ================================================================== */
 /*  Router                                                             */
 /* ================================================================== */
-const ROUTES = ["dashboard", "server", "runs", "collected", "ask", "servers", "usage", "logs", "settings"];
+const ROUTES = ["dashboard", "server", "runs", "collected", "ask", "agent", "servers", "usage", "logs", "settings"];
 
 function route() {
   const [name, ...rest] = location.hash.replace(/^#\/?/, "").split("/");
@@ -90,6 +90,7 @@ function route() {
   if (r === "collected") loadCollected();
   if (r === "ask") { renderChatContext(arg); setTimeout(() => $("#chatText").focus(), 50); }
   if (r === "servers") loadInventory();
+  if (r === "agent") loadAgentPage();
   if (r === "logs") loadLogs();
   if (r === "usage") loadUsage();
   if (r === "settings") loadSettingsPage();
@@ -673,6 +674,7 @@ const SUGGESTIONS = [
   "Disk doluluğu riskli sunucular hangileri, ne zaman dolacak?",
   "En kritik sorunun kök nedeni ne olabilir?",
   "Güvenlik açısından acil yapılması gerekenler neler?",
+  "En kritik sunucunun P1 bulgusunu canlı tanıyla doğrula ve MorpheusAI ajanından düzeltme playbook'u iste",
 ];
 
 function renderChatContext(preselect) {
@@ -686,7 +688,7 @@ function renderChatContext(preselect) {
 function renderChat() {
   $("#chatLog").innerHTML = State.chat.map((m) => `<div class="msg ${m.role}">
       <div class="avatar">${m.role === "user" ? "Siz" : "UA"}</div>
-      <div class="bubble ${m.error ? "error" : ""}">${m.role === "user" ? esc(m.content).replace(/\n/g, "<br>") : md(m.content)}</div></div>`).join("") +
+      <div class="bubble ${m.error ? "error" : ""}">${m.role === "user" ? esc(m.content).replace(/\n/g, "<br>") : md(m.content) + traceHtml(m.trace)}</div></div>`).join("") +
     (State.chatBusy ? `<div class="msg assistant"><div class="avatar">UA</div><div class="bubble typing"><span></span><span></span><span></span></div></div>` : "");
   $("#chatLog").scrollTop = $("#chatLog").scrollHeight;
   $("#chatSuggest").classList.toggle("hidden", State.chat.length > 1);
@@ -702,7 +704,7 @@ async function sendChat(text) {
   const context = v === "fleet" ? { fleet: true } : v.startsWith("s:") ? { server: v.slice(2) } : null;
   try {
     const r = await Api.chat({ messages: State.chat.filter((m) => !m.error && !m.intro).map(({ role, content }) => ({ role, content })), context });
-    State.chat.push({ role: "assistant", content: r.reply });
+    State.chat.push({ role: "assistant", content: r.reply, trace: r.trace, mode: r.mode });
   } catch (e) {
     State.chat.push({ role: "assistant", content: e.message, error: true });
   } finally {
@@ -713,7 +715,7 @@ async function sendChat(text) {
 }
 
 function resetChat() {
-  State.chat = [{ role: "assistant", intro: true, content: "Merhaba, ben **UnixAI**. Bir sunucu veya filo bağlamı seçip sorun; son toplanan metrik, log ve analizlere göre cevap veririm." }];
+  State.chat = [{ role: "assistant", intro: true, content: "Merhaba, ben **UnixAI ajanı**. Sunucu verisine araçlarımla bakar, gerekirse canlı salt-okunur tanı çalıştırır ve bağlı ajanlarla (ör. MorpheusAI) konuşurum. Ne yapalım?" }];
   renderChat();
 }
 
@@ -1304,7 +1306,7 @@ function toggleTheme() {
 
 const PAGES = [
   ["dashboard", "Genel Bakış", "dashboard"], ["runs", "Toplama & Analiz", "refresh"], ["collected", "Gelen Loglar", "logs"],
-  ["ask", "UnixAI'ye Sor", "chat"], ["servers", "Sunucular", "servers"], ["usage", "Token Kullanımı", "chart"],
+  ["ask", "UnixAI Ajanı", "chat"], ["agent", "Ajan & MCP", "sparkles"], ["servers", "Sunucular", "servers"], ["usage", "Token Kullanımı", "chart"],
   ["logs", "AI Logları", "file"], ["settings", "Ayarlar", "sliders"],
 ];
 const Palette = { items: [], sel: 0 };
@@ -1444,6 +1446,180 @@ async function saveMorpheus() {
   return m;
 }
 
+/* ================================================================== */
+/*  Ajan & MCP                                                         */
+/* ================================================================== */
+const MODE_LABEL = { native: "function calling", json: "JSON protokolü", auto: "otomatik" };
+
+/** Ajan cevabının altındaki araç adımları */
+function traceHtml(trace) {
+  if (!trace?.length) return "";
+  const steps = trace.filter((t) => t.type === "tool" || t.type === "info");
+  const remote = [...new Set(steps.filter((t) => t.remoteAgent).map((t) => t.where))];
+  return `<details class="trace"><summary>${icon("bolt", "i i-xs")} ${steps.filter((t) => t.type === "tool").length} araç adımı${remote.length ? ` · <b>ajanla konuştu: ${esc(remote.join(", "))}</b>` : ""}</summary>
+    ${steps.map((t) => t.type === "info" ? `<div class="tstep info">${esc(t.text)}</div>` : `<div class="tstep ${t.ok ? "" : "err"} ${t.remoteAgent ? "agent" : ""}">
+      <div class="tstep-h"><span class="mono">${t.step}.</span> ${t.remoteAgent ? `<span class="label blue">ajan → ${esc(t.where)}</span>` : t.where && t.where !== "local" ? `<span class="label">${esc(t.where)}</span>` : ""}
+        <b class="mono">${esc(t.tool)}</b> <span class="${t.ok ? "status-ok" : "status-err"}">${t.ok ? "✓" : "✕"}</span> <span class="muted sm">${fmtDur(t.durationMs)}</span></div>
+      <details><summary class="muted sm">girdi / sonuç</summary><pre class="code-block">${esc(JSON.stringify(t.args, null, 1))}</pre><pre class="code-block">${esc(t.ok ? t.result : t.error)}</pre></details>
+    </div>`).join("")}</details>`;
+}
+
+async function loadAgentPage() {
+  const [srv, conns, st, convs] = await Promise.allSettled([Api.mcpServer(), Api.mcpConnections(), Api.agentSettings(), Api.conversations()]);
+  if (srv.status === "fulfilled") renderMcpServer(srv.value);
+  if (conns.status === "fulfilled") renderConns(conns.value);
+  if (st.status === "fulfilled") {
+    fillForm($("#agentForm"), st.value);
+    $("#agentDetected").textContent = st.value.mode === "auto" ? `Algılanan: ${st.value.detected ? MODE_LABEL[st.value.detected] : "henüz bilinmiyor (ilk istekte denenir)"}` : "";
+  }
+  if (convs.status === "fulfilled") renderConvs(convs.value);
+  renderAgentMap(conns.status === "fulfilled" ? conns.value : [], srv.status === "fulfilled" ? srv.value : null);
+}
+
+function renderAgentMap(conns, srv) {
+  const tokens = srv?.tokens || [];
+  $("#agentMap").innerHTML = `<div class="amap">
+    <div class="amap-col"><div class="amap-h">Bağlanan istemciler</div>
+      ${tokens.map((t) => `<div class="amap-node in">${icon("key", "i i-xs")} ${esc(t.name)}${t.readonly ? ` <span class="label">salt-okunur</span>` : ""}<small>${t.lastUsedAt ? `son: ${esc(ago(t.lastUsedAt))}` : "henüz bağlanmadı"}</small></div>`).join("") || `<div class="amap-node ghost">Henüz token yok</div>`}
+    </div>
+    <div class="amap-arrow">→ /mcp →</div>
+    <div class="amap-col center"><div class="amap-core">${icon("sparkles")}<b>UnixAI ajanı</b><small>${esc(MODE_LABEL[State.health?.agent?.detected || State.health?.agent?.mode] || "")}</small></div></div>
+    <div class="amap-arrow">→ MCP →</div>
+    <div class="amap-col"><div class="amap-h">Bağlı sunucular</div>
+      ${conns.map((c) => `<div class="amap-node out ${c.enabled ? "" : "off"}">${icon("bolt", "i i-xs")} ${esc(c.name)}${c.lastTest ? ` <span class="${c.lastTest.ok ? "status-ok" : "status-err"}">${c.lastTest.ok ? `✓ ${c.lastTest.tools} araç` : "✕"}</span>` : ""}<small>${esc(c.url)}</small></div>`).join("") || `<div class="amap-node ghost">Henüz bağlantı yok</div>`}
+    </div></div>`;
+}
+
+function renderMcpServer(s) {
+  State.mcpServer = s;
+  $("#mcpServerInfo").innerHTML = `
+    <dt>Uç nokta</dt><dd><code>${esc(s.endpoint)}</code> <button class="btn link sm" id="copyEndpoint">Kopyala</button></dd>
+    <dt>Taşıma</dt><dd>${esc(s.transport)} · ${esc(s.protocolVersions.join(", "))}</dd>
+    <dt>Araçlar</dt><dd>${s.tools.map((t) => `<span class="label ${t.readonly ? "" : "gold"}" title="${esc(t.description)}">${esc(t.name)}</span>`).join(" ")}</dd>
+    <dt>.env token</dt><dd>${s.envToken ? "UNIXAI_API_TOKEN tanımlı (tam yetki)" : "yok"}</dd>`;
+  $("#copyEndpoint").onclick = () => copyText(s.endpoint);
+  $("#mcpTokens").innerHTML = `<tr><th>Ad</th><th>Önek</th><th>Yetki</th><th>Son kullanım</th><th></th></tr>` +
+    (s.tokens.map((t) => `<tr><td class="t-name">${esc(t.name)}</td><td class="mono">${esc(t.prefix)}…</td><td>${t.readonly ? "salt-okunur" : "tam"}</td>
+      <td class="t-sub">${t.lastUsedAt ? esc(ago(t.lastUsedAt)) : "—"}</td><td class="row-actions"><button class="btn link sm danger" data-del-token="${esc(t.id)}">İptal et</button></td></tr>`).join("") ||
+      `<tr><td colspan="5" class="muted">Token yok. Başka bir ajanın / MCP istemcisinin bağlanması için token üretin.</td></tr>`);
+  $("#mcpOriginForm").elements.origins.value = s.allowedOrigins.join("\n");
+}
+
+function showNewToken(t) {
+  const ep = State.mcpServer?.endpoint || location.origin + "/mcp";
+  const cfg = JSON.stringify({ mcpServers: { "unixai-os": { type: "http", url: ep, headers: { Authorization: `Bearer ${t.token}` } } } }, null, 2);
+  modal(`Token: ${t.name}`, `<div class="alert info">Token yalnızca şimdi gösterilir; güvenli bir yere kaydedin.</div>
+    <div class="fix"><pre class="term">${esc(t.token)}</pre><button class="btn link sm copy" id="cpTok">Kopyala</button></div>
+    <div class="sub-h">MorpheusAI'de (veya başka bir ajanda) bağlantı</div>
+    <p class="sm muted">Ajan &amp; MCP → Bağlantı ekle: ad <code>unixai</code>, adres <code>${esc(ep)}</code>, bu token.</p>
+    <div class="sub-h">Claude Code</div>
+    <div class="fix"><pre class="term"><span class="ln">claude mcp add --transport http unixai-os ${esc(ep)} --header "Authorization: Bearer ${esc(t.token)}"</span></pre></div>
+    <div class="sub-h">JSON yapılandırma (Claude Desktop / diğer istemciler)</div>
+    <div class="fix"><pre>${esc(cfg)}</pre><button class="btn link sm copy" id="cpCfg">Kopyala</button></div>`, { wide: true });
+  $("#cpTok").onclick = () => copyText(t.token);
+  $("#cpCfg").onclick = () => copyText(cfg);
+}
+
+function renderConns(list) {
+  State.mcpConns = list;
+  $("#mcpConns").innerHTML = `<tr><th>Ad</th><th>Adres</th><th>Durum</th><th></th></tr>` +
+    (list.map((c) => `<tr class="${c.enabled ? "" : "row-off"}"><td class="t-name">${esc(c.name)}${c.description ? `<div class="t-sub">${esc(c.description)}</div>` : ""}</td>
+      <td class="mono t-sub">${esc(c.url)}</td>
+      <td>${c.lastTest ? `<span class="${c.lastTest.ok ? "status-ok" : "status-err"}" title="${esc(c.lastTest.error || "")}">${c.lastTest.ok ? `✓ ${c.lastTest.tools} araç` : "✕ hata"}</span><div class="t-sub">${esc(c.lastTest.server?.name || "")} ${esc(ago(c.lastTest.at))}</div>` : `<span class="muted sm">test edilmedi</span>`}</td>
+      <td class="row-actions"><button class="btn link sm" data-conn-test="${esc(c.id)}">Test</button><button class="btn link sm" data-conn-edit="${esc(c.id)}">Düzenle</button><button class="btn link sm danger" data-conn-del="${esc(c.id)}">Sil</button></td></tr>`).join("") ||
+      `<tr><td colspan="4" class="muted">Bağlantı yok. Örn. MorpheusAI: <code>http://morpheus:3000/mcp</code> + MorpheusAI'de üretilen token.</td></tr>`);
+}
+
+function connModal(id) {
+  const c = (State.mcpConns || []).find((x) => x.id === id) || { enabled: true };
+  modal(id ? `Bağlantı · ${c.name}` : "MCP bağlantısı ekle", `<form id="connF" class="form">
+    <div class="grid-2">
+      <label>Ad<input class="input" name="name" value="${esc(c.name || "")}" placeholder="morpheusai" required /><small>Küçük harf; araçlar <code>ad__araç</code> olur.</small></label>
+      <label>MCP adresi<input class="input mono" name="url" value="${esc(c.url || "")}" placeholder="http://morpheus.kurum.local:3000/mcp" required /></label>
+    </div>
+    <label>Token (Bearer)<input class="input mono" name="token" type="password" value="${esc(c.token || "")}" autocomplete="new-password" /><small>Karşı uygulamada üretilen MCP erişim token'ı.</small></label>
+    <label>Açıklama<input class="input" name="description" value="${esc(c.description || "")}" placeholder="Ansible/AAP otomasyon ajanı" /></label>
+    <label class="check"><input type="checkbox" name="enabled" ${c.enabled !== false ? "checked" : ""} /> Etkin (araçları ajana açık)</label>
+    <label class="check"><input type="checkbox" name="insecureTls" ${c.insecureTls ? "checked" : ""} /> Sertifika doğrulamasını kapat</label>
+    <div id="connOut"></div>
+    <div class="toolbar end"><button class="btn primary" type="submit">Kaydet ve test et</button></div></form>`);
+  $("#connF").onsubmit = async (e) => {
+    e.preventDefault();
+    const out = $("#connOut");
+    try {
+      const saved = await Api.saveMcpConnection({ ...readForm(e.target), id: c.id });
+      out.innerHTML = loadingView("Bağlanılıyor…");
+      const t = await Api.testMcpConnection(saved.id);
+      out.innerHTML = t.ok ? `<div class="alert info"><b class="status-ok">✓ ${esc(t.server?.serverInfo?.title || t.server?.serverInfo?.name || "")}</b> — ${t.tools.length} araç: ${t.tools.map((x) => `<code>${esc(x.name)}</code>`).join(" ")}</div>`
+        : `<div class="alert danger"><b>✕</b> ${esc(t.error)}</div>`;
+      loadAgentPage();
+      checkHealth();
+    } catch (err) { out.innerHTML = errorView(err); }
+  };
+}
+
+function renderConvs(rows) {
+  $("#convTable").innerHTML = `<tr><th>Zaman</th><th>Kaynak</th><th>Soru</th><th>Araçlar</th><th>Konuştuğu ajanlar</th><th>Durum</th></tr>` +
+    (rows.map((c) => `<tr class="clickable" data-conv="${esc(c.id)}"><td class="mono t-sub">${esc(fmtTime(c.startedAt))}</td>
+      <td>${c.hop ? `<span class="label blue">ajan: ${esc(c.origin)}</span>` : esc(c.origin || "")}</td>
+      <td class="q-cell" title="${esc(c.question)}">${esc(c.question)}</td>
+      <td class="t-sub">${c.tools.length}</td><td>${c.remoteAgents.map((a) => `<span class="label blue">${esc(a)}</span>`).join(" ") || "—"}</td>
+      <td class="${c.status === "done" ? "status-ok" : c.status === "failed" ? "status-err" : ""}">${esc(c.status)}</td></tr>`).join("") ||
+      `<tr><td colspan="6" class="muted">Henüz konuşma yok.</td></tr>`);
+}
+
+async function showConversation(id) {
+  try {
+    const c = await Api.conversation(id);
+    modal(`Ajan konuşması · ${fmtTime(c.startedAt)}`, `<dl class="kv">
+      <dt>Kaynak</dt><dd>${esc(c.origin)}${c.hop ? ` · hop ${c.hop}` : ""}${c.parent ? ` · üst konuşma <code>${esc(c.parent)}</code>` : ""}</dd>
+      <dt>Mod</dt><dd>${esc(MODE_LABEL[c.mode] || c.mode || "—")}</dd><dt>Durum</dt><dd>${esc(c.status)}${c.error ? ` — <span class="status-err">${esc(c.error)}</span>` : ""}</dd></dl>
+      <div class="sub-h">Soru</div><div class="bubble">${esc(c.question)}</div>
+      <div class="sub-h">Adımlar</div>${traceHtml(c.trace).replace("<details class=\"trace\">", "<details class=\"trace\" open>")}
+      <div class="sub-h">Cevap</div><div class="bubble">${md(c.reply || "")}</div>`, { wide: true });
+  } catch (e) { toast(e.message, true); }
+}
+
+function bindAgentPage() {
+  $("#mcpTokenForm").onsubmit = async (e) => {
+    e.preventDefault();
+    try { const t = await Api.createMcpToken(e.target.elements.name.value, e.target.elements.readonly.checked); e.target.reset(); showNewToken(t); loadAgentPage(); }
+    catch (err) { toast(err.message, true); }
+  };
+  $("#mcpOriginForm").onsubmit = async (e) => {
+    e.preventDefault();
+    try { await Api.saveMcpOrigins(e.target.elements.origins.value.split(/\s+/).filter(Boolean)); toast("İzinli alanlar kaydedildi"); }
+    catch (err) { toast(err.message, true); }
+  };
+  $("#mcpTokens").onclick = async (e) => {
+    const b = e.target.closest("[data-del-token]");
+    if (b && confirm("Bu token iptal edilsin mi? Onu kullanan istemciler bağlanamaz.")) {
+      try { await Api.deleteMcpToken(b.dataset.delToken); loadAgentPage(); } catch (err) { toast(err.message, true); }
+    }
+  };
+  $("#mcpConnAdd").onclick = () => connModal(null);
+  $("#mcpConns").onclick = async (e) => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    if (b.dataset.connEdit) connModal(b.dataset.connEdit);
+    if (b.dataset.connTest) {
+      b.disabled = true;
+      try { const t = await Api.testMcpConnection(b.dataset.connTest); toast(t.ok ? `Bağlandı · ${t.tools.length} araç` : t.error, !t.ok); loadAgentPage(); }
+      catch (err) { toast(err.message, true); } finally { b.disabled = false; }
+    }
+    if (b.dataset.connDel && confirm("Bağlantı silinsin mi?")) {
+      try { await Api.deleteMcpConnection(b.dataset.connDel); loadAgentPage(); } catch (err) { toast(err.message, true); }
+    }
+  };
+  $("#agentForm").onsubmit = async (e) => {
+    e.preventDefault();
+    try { await Api.saveAgentSettings(readForm(e.target)); toast("Ajan ayarları kaydedildi"); loadAgentPage(); checkHealth(); }
+    catch (err) { toast(err.message, true); }
+  };
+  $("#convRefresh").onclick = loadAgentPage;
+  $("#convTable").onclick = (e) => { const tr = e.target.closest("[data-conv]"); if (tr) showConversation(tr.dataset.conv); };
+}
+
 function bindEvents() {
   addEventListener("hashchange", route);
   $("#menuBtn").onclick = () => $("#sidebar").classList.toggle("open");
@@ -1484,6 +1660,7 @@ function bindEvents() {
     document.getElementById(a.dataset.anchor)?.scrollIntoView({ behavior: "smooth", block: "start" });
   }));
   bindPalette();
+  bindAgentPage();
   $("#dashCollect").onclick = (e) => startRun("collect", e.target);
   $("#dashReanalyze").onclick = (e) => startRun("reanalyze", e.target);
 

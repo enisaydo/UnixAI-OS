@@ -68,6 +68,12 @@ AAP'deki runner job template'i ile **önce check (dry-run), sonra gerçek** olar
 `mcp/unixai_mcp.py` (UnixAI OS) ve MorpheusAI'deki `mcp/morpheus-mcp.js` bir MCP istemcisine (Claude Code / Desktop)
 birlikte eklenince iki sistem araç çağrılarıyla konuşur. Ayrıntılar ve örnek yapılandırma: [`mcp/README.md`](mcp/README.md).
 
+## Ajan ve MCP (birbiriyle konuşan iki ajan)
+
+UnixAI OS bir **ajandır**: kurumsal GPT + araçlarla çok adımlı çalışır. Araçlarını `POST /mcp` (Streamable HTTP) üzerinden başka alanlara **barındırır** (arayüzden üretilen token'lar, salt-okunur seçeneği, izinli Origin listesi) ve başka MCP sunucularına **istemci olarak bağlanır** (ör. MorpheusAI, diğer ekiplerin ajanları). İki uygulama `*_agent_ask` araçlarıyla birbirinin ajanına doğal dilde soru sorar; hop sınırı döngüyü önler. Gerçek uygulama her zaman insan onayı gerektirir.
+
+Kurulum ve mimari: [`mcp/README.md`](mcp/README.md) · Arayüz: **Ajan & MCP**
+
 ## Sunucular ve SSH
 
 1. **Sunucular → Sunucu ekle / Toplu ekle** (`ad adres [kullanıcı] [port]` satırları).
@@ -90,7 +96,8 @@ needs-restarting, top prosesler, zombie. Root değilse ayrıcalıklı komutlar `
 | **Sunucu detayı** | Aksiyonlar (komutlarıyla), anomaliler, kural bulguları, metrikler, trend grafikleri, ham loglar, GPT'ye giden istek |
 | **Toplama & Analiz** | Topla ve analiz et, sadece yeniden analiz et, demo veri; çalıştırma geçmişi ve canlı ilerleme |
 | **Gelen Loglar** | Sunucu × log bölümü matrisi (satır sayısı); hücreden ham çıktı |
-| **UnixAI'ye Sor** | Sunucu veya filo bağlamıyla sohbet |
+| **UnixAI Ajanı** | Araç kullanan ajan: sunucu verisi, canlı salt-okunur tanı, MorpheusAI ajanıyla konuşma; adımlar cevabın altında |
+| **Ajan & MCP** | Barındırılan /mcp, erişim token'ları, izinli alanlar, bağlı MCP sunucuları, ajan ayarları ve konuşmaları |
 | **Sunucular** | Envanter, SSH testi, public key ve hedef kurulum komutları |
 | **Token Kullanımı** | Günlük grafik, kullanıcı/tür dağılımı, limitler, CSV |
 | **AI Logları** | Token servisi ve GPT istek/cevapları (maskeli) |

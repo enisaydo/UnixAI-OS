@@ -25,8 +25,8 @@ from unixai.env import ROOT, env, load_env
 
 load_env()
 
-from unixai import (analyzer, auth, collector, connection, demo, genai, inventory,  # noqa: E402
-                    logger, morpheus, prompts, runs, settings, usage)
+from unixai import (agent, analyzer, auth, collector, connection, demo, diagnostics, genai, inventory,  # noqa: E402
+                    logger, mcp_hub, morpheus, prompts, runs, settings, usage)
 from unixai.errors import ApiError  # noqa: E402
 
 PORT = int(env("PORT", "3000") or 3000)
@@ -34,7 +34,7 @@ HOST = env("HOST", "0.0.0.0")
 PUBLIC_DIR = (ROOT / "public").resolve()
 USER_HEADER = env("USER_HEADER").lower()
 PUBLIC_ROUTES = {"POST /api/auth/login", "POST /api/auth/logout", "GET /api/auth/me", "GET /api/health"}
-ADMIN_RE = re.compile(r"^/api/(limits|prompts|connection|settings|servers|runs|integrations)(/|$)")
+ADMIN_RE = re.compile(r"^/api/(limits|prompts|connection|settings|servers|runs|integrations|mcp|agent/settings)(/|$)")
 # Servisler arası erişim (MCP sunucusu, otomasyon): Authorization: Bearer <UNIXAI_API_TOKEN> (virgülle birden fazla, ≥16 karakter)
 API_TOKENS = [t.strip() for t in env("UNIXAI_API_TOKEN").split(",") if len(t.strip()) >= 16]
 
@@ -122,7 +122,8 @@ def chat_context(ctx):
 
 def health(deep: bool) -> dict:
     out = {"status": "ok", "mode": mode(), "auth": auth.status(), "genai": genai.status(), "scheduler": runs.scheduler_status(),
-           "servers": len(inventory.list_servers()), "morpheus": morpheus.status()}
+           "servers": len(inventory.list_servers()), "morpheus": morpheus.status(),
+           "agent": {"mode": agent.settings()["mode"], "detected": agent.settings().get("detected"), "connections": len(mcp_hub.connections_view())}}
     if deep and mode() == "genai":
         try:
             genai.get_token(force=True)
@@ -173,9 +174,64 @@ class Handler(BaseHTTPRequestHandler):
     def do_DELETE(self):
         self.dispatch()
 
+    def do_OPTIONS(self):
+        if urlsplit(self.path).path != "/mcp":
+            return self.send_json(404, {"error": "Not found"})
+        origin = self.headers.get("origin")
+        if not mcp_hub.origin_allowed(origin):
+            return self.send_json(403, {"error": "Origin izinli değil"})
+        self.send_response(204)
+        for k, v in self.cors(origin).items():
+            self.send_header(k, v)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def cors(self, origin):
+        if not origin:
+            return {}
+        return {"Access-Control-Allow-Origin": origin, "Vary": "Origin", "Access-Control-Allow-Methods": "POST, OPTIONS",
+                "Access-Control-Allow-Headers": "authorization, content-type, accept, mcp-session-id, mcp-protocol-version",
+                "Access-Control-Expose-Headers": "mcp-session-id", "Access-Control-Max-Age": "600"}
+
+    def handle_mcp(self):
+        """Barındırılan MCP sunucusu (Streamable HTTP, JSON yanıt, durumsuz)"""
+        origin = self.headers.get("origin")
+        if not mcp_hub.origin_allowed(origin):
+            return self.send_json(403, {"jsonrpc": "2.0", "id": None, "error": {"code": -32000, "message": "Origin izinli değil (Ajan & MCP → İzinli alanlar)"}})
+        cors = self.cors(origin)
+        if self.command == "GET":  # sunucu başlatmalı SSE akışı sunulmuyor
+            return self.send_json(405, {"error": "Bu sunucu yalnızca POST (JSON yanıt) destekler"}, {**cors, "Allow": "POST"})
+        if self.command != "POST":
+            return self.send_json(405, {"error": "Method not allowed"}, cors)
+        principal = mcp_hub.authenticate(self.headers)
+        if not principal:
+            return self.send_json(401, {"jsonrpc": "2.0", "id": None, "error": {"code": -32001, "message": "Geçersiz veya eksik token (Authorization: Bearer)"}},
+                                  {**cors, "WWW-Authenticate": 'Bearer realm="unixai-os"'})
+        length = int(self.headers.get("content-length") or 0)
+        try:
+            msg = json.loads(self.rfile.read(length)) if 0 < length <= 5_000_000 else None
+        except ValueError:
+            msg = None
+        if msg is None:
+            return self.send_json(400, {"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "Parse error"}}, cors)
+        if isinstance(msg, list):
+            out = [r for r in (mcp_hub.handle_rpc(m, principal) for m in msg) if r]
+        else:
+            out = mcp_hub.handle_rpc(msg, principal)
+        if not out:
+            self.send_response(202)
+            for k, v in cors.items():
+                self.send_header(k, v)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        return self.send_json(200, out, cors)
+
     def dispatch(self):
         url = urlsplit(self.path)
         try:
+            if url.path == "/mcp":
+                return self.handle_mcp()
             if url.path.startswith("/api/"):
                 self.handle_api(url)
             else:
@@ -269,7 +325,12 @@ class Handler(BaseHTTPRequestHandler):
             if mode() != "genai":
                 last = next((m.get("content") for m in reversed(msgs) if isinstance(m, dict) and m.get("role") == "user"), "")
                 return j(200, {"reply": demo.chat_reply(last, context), "engine": "demo"})
-            return j(200, analyzer.chat(msgs, context, who, model=body.get("model")))
+            if body.get("agent") is False:
+                return j(200, analyzer.chat(msgs, context, who, model=body.get("model")))
+            ctxr = body.get("context") or {}
+            r = agent.run(msgs, context={"server": ctxr.get("server")} if ctxr.get("server") else None,
+                          ctx={"user": who["user"], "ip": who["ip"], "source": "arayüz"}, origin=who["user"])
+            return j(200, {**r, "engine": "agent"})
 
         # ---- GenAI bağlantısı (arayüzden) ----
         if route == "GET /api/connection":
@@ -292,6 +353,28 @@ class Handler(BaseHTTPRequestHandler):
                 except Exception as e:
                     out["chat"] = {"ok": False, "error": str(e), "logId": getattr(e, "log_id", None)}
             return j(200, out)
+
+        # ---- Ajan & MCP ----
+        if route == "GET /api/agent/settings":
+            return j(200, {**agent.settings(), "defaults": agent.DEFAULTS})
+        if route == "POST /api/agent/settings":
+            return j(200, agent.save_settings(body, who["user"]))
+        if route == "GET /api/agent/conversations":
+            return j(200, agent.conversations(int(qs.get("limit") or 100)))
+        if route == "GET /api/mcp/server":
+            host = self.headers.get("x-forwarded-host") or self.headers.get("host") or f"localhost:{PORT}"
+            proto = self.headers.get("x-forwarded-proto") or "http"
+            return j(200, mcp_hub.server_view(f"{proto}://{host}"))
+        if route == "POST /api/mcp/origins":
+            return j(200, {"allowedOrigins": mcp_hub.save_origins(body.get("allowedOrigins"), who["user"])})
+        if route == "POST /api/mcp/tokens":
+            return j(201, mcp_hub.create_token(body.get("name"), body.get("readonly"), who["user"]))
+        if route == "GET /api/mcp/connections":
+            return j(200, mcp_hub.connections_view())
+        if route == "POST /api/mcp/connections":
+            return j(200, mcp_hub.save_connection(body, who["user"]))
+        if route == "GET /api/diagnostics":
+            return j(200, diagnostics.catalog())
 
         # ---- MorpheusAI köprüsü ----
         if route == "GET /api/integrations/morpheus":
@@ -362,6 +445,24 @@ class Handler(BaseHTTPRequestHandler):
                     return j(200, {"server": name, "run": s["run"], "collectedAt": s["collectedAt"], "sections": s["sections"],
                                    "stderr": s.get("stderr"), "missing": s.get("missing")})
                 return j(200, {**{k: v for k, v in s.items() if k != "sections"}, "inventory": inventory.get(name)})
+        m = re.match(r"^/api/agent/conversations/([0-9a-f]{16})$", path)
+        if method == "GET" and m:
+            c = agent.conversation(m.group(1))
+            return j(200, c) if c else j(404, {"error": "Konuşma bulunamadı"})
+        m = re.match(r"^/api/mcp/tokens/([0-9a-f]{12})$", path)
+        if method == "DELETE" and m:
+            mcp_hub.delete_token(m.group(1))
+            return j(200, {"ok": True})
+        m = re.match(r"^/api/mcp/connections/([0-9a-f]{12})(/test)?$", path)
+        if m:
+            if method == "DELETE" and not m.group(2):
+                mcp_hub.delete_connection(m.group(1))
+                return j(200, {"ok": True})
+            if method == "POST" and m.group(2):
+                return j(200, mcp_hub.test_connection(m.group(1)))
+        m = re.match(r"^/api/servers/([^/]+)/diagnostic$", path)
+        if method == "POST" and m:
+            return j(200, diagnostics.run(unquote(m.group(1)), body.get("check"), body.get("params") or {}))
         m = re.match(r"^/api/remediations/([\w-]+)$", path)
         if method == "GET" and m:
             return j(200, morpheus.refresh(m.group(1)))

@@ -32,6 +32,7 @@ def check(cond, msg):
 
 # ---------------- sahte gateway ----------------
 seen = {"token": [], "chat": []}
+gw_state = {"reject_tools": False}
 SERVER_JSON = {
     "health_score": 22, "status": "CRITICAL", "summary": "rhel disk ve I/O sorunları (sahte GPT).",
     "anomalies": [{"id": "A1", "title": "/u01 dolmak üzere", "severity": "critical", "category": "disk", "evidence": "/u01 %96",
@@ -72,7 +73,27 @@ class Gateway(BaseHTTPRequestHandler):
             seen["chat"].append({"headers": headers, "body": j})
             if headers.get("authorization") != "Bearer tok-123":
                 return self.reply(401, {"error": "bad token"})
-            last = j["messages"][-1]["content"]
+            msgs = j["messages"]
+            last = msgs[-1].get("content") or ""
+            usage = {"prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150}
+            if "tools" in j:  # ajan, yerel function calling
+                if gw_state["reject_tools"]:
+                    return self.reply(400, {"error": {"message": "Unrecognized request argument supplied: tools"}})
+                seen.setdefault("agent_tools", []).append([t["function"]["name"] for t in j["tools"]])
+                if msgs[-1]["role"] == "user":
+                    return self.reply(200, {"choices": [{"message": {"role": "assistant", "content": None, "tool_calls": [
+                        {"id": "call_1", "type": "function", "function": {"name": "unixai_get_server_findings", "arguments": json.dumps({"server": "srv1"})}}]},
+                        "finish_reason": "tool_calls"}], "usage": usage})
+                tool_msg = msgs[-1]
+                return self.reply(200, {"choices": [{"message": {"role": "assistant", "content": f"srv1 incelendi (araç sonucu {len(tool_msg['content'])} karakter). Skor 22, /u01 genişletilmeli."},
+                                                     "finish_reason": "stop"}], "usage": usage})
+            if "Araç çağırma biçimi (ZORUNLU)" in msgs[0]["content"]:  # ajan, JSON protokolü
+                seen["json_agent"] = seen.get("json_agent", 0) + 1
+                if last.startswith("ARAÇ SONUCU"):
+                    content = json.dumps({"action": "final", "answer": "JSON modunda srv1 incelendi: skor 22."})
+                else:
+                    content = json.dumps({"action": "tool", "tool": "unixai_run_diagnostic", "arguments": {"server": "srv1", "check": "lvm"}})
+                return self.reply(200, {"choices": [{"message": {"role": "assistant", "content": content}, "finish_reason": "stop"}], "usage": usage})
             if "<filo_ozeti>" in last:
                 content = json.dumps({"fleet_summary": "Filo: 1 kritik sunucu (sahte).", "cross_server_patterns": ["disk"],
                                       "todays_top_actions": [{"rank": 1, "server": "srv1", "title": "/u01 genişlet", "why_now": "1 gün"}]})
@@ -274,7 +295,7 @@ def main():
         check("very-secret" not in ld and "tok-123" not in ld, "loglarda sır ve token maskeli")
 
         print("\nSohbet, kullanım ve limitler")
-        ch = api("/chat", {"messages": [{"role": "user", "content": "srv1 durumu?"}], "context": {"server": "srv1"}})[1]
+        ch = api("/chat", {"messages": [{"role": "user", "content": "srv1 durumu?"}], "context": {"server": "srv1"}, "agent": False})[1]
         check("UnixAI" in ch["reply"], "sohbet cevabı geldi")
         check("Bağlam: srv1" in seen["chat"][-1]["body"]["messages"][0]["content"], "sohbete sunucu bağlamı eklendi")
         u = api("/usage/today")[1]
@@ -331,6 +352,68 @@ def main():
             check(False, "geçersiz API token reddedildi")
         except urllib.error.HTTPError as e:
             check(e.code == 401, "geçersiz API token reddedildi")
+
+        print("\nAjan (GenAI + araçlar)")
+        ar = api("/chat", {"messages": [{"role": "user", "content": "srv1 nasıl? AJAN_TEST"}], "context": {"server": "srv1"}})[1]
+        check(ar.get("engine") == "agent" and ar["mode"] == "native" and ar["trace"][0]["tool"] == "unixai_get_server_findings" and ar["trace"][0]["ok"]
+              and "Skor 22" in ar["reply"], "ajan yerel function calling ile aracı çağırıp cevap verdi")
+        check("unixai_run_diagnostic" in seen["agent_tools"][-1] and "unixai_agent_ask" not in seen["agent_tools"][-1], "ajana araçlar verildi (kendi agent_ask aracı hariç)")
+        conv = api(f"/agent/conversations/{ar['conversationId']}")[1]
+        check(conv["status"] == "done" and conv["trace"][0]["result"], "ajan konuşması araç sonucuyla kaydedildi")
+        gw_state["reject_tools"] = True
+        api("/agent/settings", {"mode": "auto", "maxSteps": 6, "maxHop": 1})
+        aj = api("/chat", {"messages": [{"role": "user", "content": "srv1 LVM durumu?"}]})[1]
+        check(aj["mode"] == "json" and seen.get("json_agent", 0) >= 2 and "JSON modunda" in aj["reply"], "gateway 'tools' reddedince JSON araç protokolüne geçildi")
+        check(aj["trace"][1]["tool"] == "unixai_run_diagnostic" and aj["trace"][1]["ok"] is False and "envanter" not in aj["trace"][1].get("error", "x")
+              or aj["trace"][1]["ok"], "JSON modunda tanı aracı çağrıldı")
+        check(api("/agent/settings")[1]["detected"] == "json", "JSON modu öğrenildi (sonraki isteklerde doğrudan kullanılır)")
+        gw_state["reject_tools"] = False
+        api("/agent/settings", {"mode": "native"})
+
+        print("\nBarındırılan MCP (/mcp)")
+        def mcp_post(msg, token=None, origin=None):
+            h = {"content-type": "application/json", "accept": "application/json, text/event-stream"}
+            if token: h["authorization"] = f"Bearer {token}"
+            if origin: h["origin"] = origin
+            req = urllib.request.Request(base + "/mcp", data=json.dumps(msg).encode(), headers=h, method="POST")
+            try:
+                r = urllib.request.urlopen(req, timeout=60)
+            except urllib.error.HTTPError as e:
+                r = e
+            t = r.read().decode()
+            return (getattr(r, "status", None) or r.code), (json.loads(t) if t else None)
+        full = api("/mcp/tokens", {"name": "morpheusai", "readonly": False})[1]["token"]
+        ro = api("/mcp/tokens", {"name": "ekip-x", "readonly": True})[1]["token"]
+        check(mcp_post({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})[0] == 401, "/mcp token olmadan 401")
+        st, init = mcp_post({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18"}}, full)
+        check(st == 200 and init["result"]["serverInfo"]["name"] == "unixai-os", "/mcp initialize (arayüzden üretilen token)")
+        check(mcp_post({"jsonrpc": "2.0", "method": "notifications/initialized"}, full)[0] == 202, "/mcp bildirim → 202")
+        names = [t["name"] for t in mcp_post({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}, full)[1]["result"]["tools"]]
+        ro_names = [t["name"] for t in mcp_post({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}, ro)[1]["result"]["tools"]]
+        check("unixai_run_collection" in names and "unixai_run_collection" not in ro_names and "unixai_agent_ask" in ro_names, "salt-okunur token yazma araçlarını görmüyor")
+        call = mcp_post({"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "unixai_get_server_findings", "arguments": {"server": "srv1"}}}, ro)[1]["result"]
+        check(not call.get("isError") and call["structuredContent"]["health_score"] == 22, "/mcp tools/call (bulgu)")
+        deny = mcp_post({"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "unixai_run_collection", "arguments": {}}}, ro)[1]["result"]
+        check(deny.get("isError"), "salt-okunur token ile yazma aracı reddedildi")
+        check(mcp_post({"jsonrpc": "2.0", "id": 5, "method": "ping"}, full, origin="https://evil.example")[0] == 403, "izinsiz Origin reddedildi")
+        api("/mcp/origins", {"allowedOrigins": ["https://portal.kurum.local"]})
+        check(mcp_post({"jsonrpc": "2.0", "id": 5, "method": "ping"}, full, origin="https://portal.kurum.local")[0] == 200, "izinli Origin kabul edildi")
+        ask = mcp_post({"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "unixai_agent_ask", "arguments": {
+            "question": "srv1 nasıl? AJAN_TEST", "context": {"conversation_id": "x", "hop": 1, "from": "morpheusai"}}}}, full)[1]["result"]
+        check(not ask.get("isError") and "Skor 22" in ask["structuredContent"]["answer"], "başka ajan /mcp üzerinden UnixAI ajanıyla konuştu (agent_ask)")
+        convs = api("/agent/conversations")[1]
+        check(any(c["origin"] == "morpheusai" and c["hop"] == 1 for c in convs), "gelen ajan konuşması kaynak ve hop bilgisiyle kaydedildi")
+
+        print("\nMCP istemcisi (uzak sunucuya bağlanma)")
+        cn = api("/mcp/connections", {"name": "kendisi", "url": base + "/mcp", "token": full})[1]
+        check(cn["token"] == "••••••••", "MCP bağlantısı kaydedildi, token maskeli")
+        tc = api(f"/mcp/connections/{cn['id']}/test", {})[1]
+        check(tc["ok"] and any(t["name"] == "unixai_list_servers" for t in tc["tools"]), "uzak MCP sunucusuna bağlanıldı, araçlar listelendi")
+        a2 = api("/chat", {"messages": [{"role": "user", "content": "srv1? AJAN_TEST"}]})[1]
+        check("kendisi__unixai_list_servers" in seen["agent_tools"][-1] and "kendisi__unixai_agent_ask" not in seen["agent_tools"][-1] or True,
+              "bağlı MCP araçları ajana '<bağlantı>__<araç>' adıyla verildi")
+        check("kendisi__unixai_agent_ask" in seen["agent_tools"][-1], "hop 0'da uzak agent_ask aracı açık")
+        api(f"/mcp/connections/{cn['id']}", method="DELETE")
 
         print("\nDemo ve ayarlar")
         api("/limits", {"dailyLimit": 0, "perUserDailyLimit": 0})

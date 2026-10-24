@@ -37,8 +37,9 @@
       <div class="nav-group">Analiz</div>
       <a href="#/runs" data-route="runs"><svg class="i" data-icon="refresh"></svg>Toplama &amp; Analiz</a>
       <a href="#/collected" data-route="collected"><svg class="i" data-icon="logs"></svg>Gelen Loglar</a>
-      <a href="#/ask" data-route="ask"><svg class="i" data-icon="chat"></svg>UnixAI'ye Sor</a>
+      <a href="#/ask" data-route="ask"><svg class="i" data-icon="chat"></svg>UnixAI Ajanı</a>
       <div class="nav-group">Yönetim</div>
+      <a href="#/agent" data-route="agent"><svg class="i" data-icon="sparkles"></svg>Ajan &amp; MCP</a>
       <a href="#/servers" data-route="servers"><svg class="i" data-icon="servers"></svg>Sunucular</a>
       <a href="#/usage" data-route="usage"><svg class="i" data-icon="chart"></svg>Token Kullanımı</a>
       <a href="#/logs" data-route="logs"><svg class="i" data-icon="file"></svg>AI Logları</a>
@@ -146,7 +147,8 @@
       <!-- ---------- UNIXAI'YE SOR ---------- -->
       <section class="view" data-view="ask">
         <div class="page-head">
-          <div><h1>UnixAI'ye Sor</h1><p>Bir sunucu veya filo bağlamı seçin; UnixAI son toplanan metrik, log ve analizlere göre cevaplasın.</p></div>
+          <div><h1>UnixAI Ajanı</h1><p>Ajan araçlarıyla sunucu verisine bakar, gerekirse canlı salt-okunur tanı çalıştırır ve bağlı ajanlarla (ör. MorpheusAI) konuşur. Her adım cevabın altında görünür.</p></div>
+          <a class="btn" href="#/agent"><svg class="i" data-icon="sliders"></svg>Ajan &amp; MCP</a>
         </div>
         <div class="card chat">
           <div class="chat-log" id="chatLog"></div>
@@ -162,6 +164,61 @@
               <button class="btn primary" type="submit" id="chatSend">Gönder</button>
             </div>
           </form>
+        </div>
+      </section>
+
+      <!-- ---------- AJAN & MCP ---------- -->
+      <section class="view" data-view="agent">
+        <div class="page-head">
+          <div><h1>Ajan &amp; MCP</h1><p>UnixAI ajanı başka MCP sunucularına (ör. MorpheusAI, diğer ekiplerin ajanları) bağlanır; kendi araçlarını da MCP üzerinden başka alanlara sunar.</p></div>
+          <a class="btn primary" href="#/ask"><svg class="i" data-icon="chat"></svg>Ajanla konuş</a>
+        </div>
+        <div class="agent-map" id="agentMap"></div>
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-head"><h3><svg class="i" data-icon="servers"></svg>Bu uygulamanın MCP sunucusu</h3><span class="label green" id="mcpEndpointLabel">barındırılıyor</span></div>
+            <dl class="kv" id="mcpServerInfo"></dl>
+            <div class="sub-h">Erişim token'ları</div>
+            <div class="table-wrap"><table class="table compact" id="mcpTokens"></table></div>
+            <form id="mcpTokenForm" class="toolbar mt">
+              <input class="input sm" name="name" placeholder="İstemci adı (ör. morpheusai, ekip-x-ajan)" required />
+              <label class="check sm"><input type="checkbox" name="readonly" /> Salt-okunur</label>
+              <button class="btn primary sm" type="submit">Token üret</button>
+            </form>
+            <div class="sub-h">İzinli alanlar (tarayıcı tabanlı istemciler için Origin)</div>
+            <form id="mcpOriginForm" class="form">
+              <textarea class="input mono" name="origins" rows="3" placeholder="https://portal.kurum.local&#10;https://ajan.ekipx.kurum.local"></textarea>
+              <small>Sunucudan sunucuya (ajan/MCP istemcisi) istekler Origin göndermez ve yalnızca token ile doğrulanır. <code>*</code> tüm alanlara izin verir (önerilmez).</small>
+              <div class="toolbar"><button class="btn sm" type="submit">Kaydet</button></div>
+            </form>
+          </div>
+          <div class="card">
+            <div class="card-head"><h3><svg class="i" data-icon="bolt"></svg>Bağlı MCP sunucuları</h3><button class="btn sm primary" id="mcpConnAdd"><svg class="i" data-icon="plus"></svg>Bağlantı ekle</button></div>
+            <p class="muted sm">Araçları UnixAI ajanına <code>&lt;bağlantı&gt;__&lt;araç&gt;</code> adıyla açılır. Adı <code>agent_ask</code> ile biten araçlar uzak bir ajanla doğal dilde konuşur.</p>
+            <div class="table-wrap"><table class="table compact" id="mcpConns"></table></div>
+            <div class="sub-h">Ajan ayarları</div>
+            <form id="agentForm" class="form">
+              <div class="grid-2">
+                <label>Araç çağırma modu
+                  <select class="input" name="mode">
+                    <option value="auto">Otomatik (önce function calling, olmazsa JSON)</option>
+                    <option value="native">Function calling (tools)</option>
+                    <option value="json">JSON protokolü (her gateway)</option>
+                  </select>
+                  <small id="agentDetected"></small>
+                </label>
+                <label>En fazla adım<input class="input" name="maxSteps" type="number" min="1" max="20" /></label>
+                <label>Ajanlar arası hop sınırı<input class="input" name="maxHop" type="number" min="0" max="3" />
+                  <small>1: UnixAI başka ajana sorabilir, gelen istekte geri soramaz (döngü önlemi).</small></label>
+                <label class="check"><input type="checkbox" name="allowWrite" /> Ajan toplama başlatabilir ve MorpheusAI'ye gönderebilir</label>
+              </div>
+              <div class="toolbar"><button class="btn primary sm" type="submit">Kaydet</button></div>
+            </form>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3><svg class="i" data-icon="chat"></svg>Ajan konuşmaları</h3><button class="btn sm" id="convRefresh"><svg class="i" data-icon="refresh"></svg>Yenile</button></div>
+          <div class="table-wrap"><table class="table" id="convTable"></table></div>
         </div>
       </section>
 
