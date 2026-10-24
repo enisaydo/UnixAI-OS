@@ -129,6 +129,25 @@ cd /opt/unixai-os && git pull && systemctl restart unixai-os
 - GPT'ye giden log içeriği için *Ayarlar → IP adreslerini maskele* seçeneği vardır; log metinleri modele "veri, talimat değil" olarak verilir.
 - Token limiti dolunca AI çağrısı yapılmaz, sunucular kural motoruyla analiz edilir.
 
+## Loglar
+
+Sistemin yaptığı her işlem kategorisine göre **ayrı dosyaya** yazılır: `logs/<kategori>/<kategori>-YYYY-MM-DD.jsonl`
+(`LOG_RETENTION_DAYS` gün saklanır). Arayüzde **Log Dosyaları** ekranından kategori/tarih seçip arayabilirsiniz.
+
+| Dosya | İçerik |
+|---|---|
+| `logs/islem/` | arayüz/API/MCP'den yapılan her değişiklik: kim, IP, ne, sonuç (İşlem Kayıtları ekranı ile aynı) |
+| `logs/giris/` | giriş denemeleri |
+| `logs/ssh/` | hedef sunuculara her SSH bağlantısı: sunucu, kullanıcı, amaç (toplama/test/tanı), çıkış kodu, süre, hata |
+| `logs/toplama/` | toplama çalıştırmaları: başladı, her sunucunun sonucu (skor, P1 sayısı), bitti |
+| `logs/tani/` | canlı salt-okunur tanı komutları |
+| `logs/genai/` | TMS token ve GPT çağrıları |
+| `logs/morpheus/` | MorpheusAI köprüsü: bulgu gönderimi, onay/ret/uygulama aktarımı, durum sorguları |
+| `logs/mcp-istemci/`, `logs/mcp-sunucu/` | giden / gelen MCP çağrıları |
+| `logs/ajan/`, `logs/ajanlar-arasi/` | ajanın araç adımları, UnixAI ⇄ MorpheusAI konuşmaları |
+
+Parola ve secret'lar yazılmaz; token'ların yalnızca ilk 4 karakteri görünür.
+
 ## Dosyalar
 
 ```

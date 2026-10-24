@@ -64,13 +64,17 @@ def build_command(check: str, params: dict) -> str:
     return "export LC_ALL=C; " + tpl.format(**values)
 
 
-def run(server_name: str, check: str, params=None) -> dict:
+def run(server_name: str, check: str, params=None, user=None) -> dict:
     s = inventory.get(server_name)
     if not s:
         raise ApiError(f"'{server_name}' envanterde yok (demo sunucularında SSH tanısı çalıştırılamaz)", 404)
     cmd = build_command(check, params or {})
     ssh = settings.get()["ssh"]
-    r = collector.run_ssh(s, {**ssh, "commandTimeout": min(ssh["commandTimeout"], 120)}, cmd)
+    r = collector.run_ssh(s, {**ssh, "commandTimeout": min(ssh["commandTimeout"], 120)}, cmd, purpose=f"tanı: {check}")
+    from . import oplog
+
+    oplog.log("tani", f"Canlı tanı: {check}", user=user, server=server_name, params=params or None, command=cmd, exitCode=r["code"],
+              durationMs=r["durationMs"], ok=not r["timedOut"] and r["code"] != 255, error="zaman aşımı" if r["timedOut"] else None)
     if r["timedOut"]:
         raise ApiError("Tanı komutu zaman aşımına uğradı", 504)
     if r["code"] == 255 and not r["stdout"]:

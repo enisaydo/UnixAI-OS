@@ -445,6 +445,19 @@ def main():
         check(len(api("/servers/rhel-db01/history")[1]) == 7, "demo: 7 günlük geçmiş (trend)")
         db = api("/servers/rhel-db01/snapshot")[1]
         check(next(f for f in db["metrics"]["filesystems"] if f["mount"] == "/u01").get("days_to_full", 0) > 0, "trend: /u01 dolma süresi hesaplandı")
+
+        print("\nLog dosyaları (her kategori ayrı dosya)")
+        ol = api("/oplogs")[1]
+        have = {c["category"]: c for c in ol["categories"]}
+        for cat in ("islem", "ssh", "toplama", "genai", "morpheus", "mcp-sunucu"):
+            f = have.get(cat, {}).get("files") or []
+            check(bool(f) and os.path.exists(os.path.join(data_dir, "logs", cat, f"{cat}-{f[0]['date']}.jsonl")), f"logs/{cat}/{cat}-<tarih>.jsonl yazıldı")
+        day = have["ssh"]["files"][0]["date"]
+        sl = api(f"/oplogs/ssh?date={day}")[1]["items"]
+        check(any(x.get("server") and x.get("exitCode") is not None and x.get("durationMs") is not None for x in sl), "SSH logu: sunucu, çıkış kodu, süre")
+        gl = api(f"/oplogs/genai?date={day}")[1]["items"]
+        check(gl and all("Bearer" not in json.dumps(x.get("request", {}), ensure_ascii=False) or "…" in json.dumps(x.get("request", {}), ensure_ascii=False) for x in gl), "GenAI logunda token maskeli")
+        check(api(f"/oplogs/islem?date={day}&q=zamanlama")[1]["items"] or api(f"/oplogs/islem?date={day}")[1]["total"] > 0, "işlem logu okunuyor (arama)")
     except Exception:
         global failures
         failures += 1

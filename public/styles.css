@@ -680,3 +680,8 @@ svg.i.i-xs { width: 13px; height: 13px; vertical-align: -2px; }
 .appr-title { flex: 1; min-width: 200px; font-weight: 600; font-size: 13px; }
 .msg .a2a-rem { margin-top: 12px; background: var(--surface, transparent); }
 .sidebar .badge[hidden] { display: none; }
+
+/* ---- log dosyaları ---- */
+#olFile { margin: 4px 0 10px; }
+.ol-json { max-height: 360px; overflow: auto; white-space: pre; font-size: 11.5px; min-width: 380px; }
+tr.row-err td:first-child { box-shadow: inset 3px 0 0 var(--crit); }

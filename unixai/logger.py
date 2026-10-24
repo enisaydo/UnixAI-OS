@@ -1,7 +1,7 @@
 """Dış servis çağrı logları (GenAI)
 
 - Son AI_LOG_MEMORY (varsayılan 200) kayıt bellekte tutulur → /api/logs ile arayüzde görünür
-- Her kayıt logs/ai-YYYY-MM-DD.jsonl dosyasına bir satır olarak yazılır
+- Her kayıt servisine göre AYRI dosyaya yazılır: logs/<genai|morpheus|mcp-istemci>/<servis>-YYYY-MM-DD.jsonl (unixai/oplog)
 - Konsola (journalctl) tek satırlık özet basılır
 - Gizli alanlar (authorization, cookie, client_secret, password, token...) maskelenir
 """
@@ -13,16 +13,12 @@ import re
 import threading
 import uuid
 from collections import deque
-from pathlib import Path
 from urllib.parse import urlsplit
 
-from .env import ROOT
-from .store import append_line, iso_now
+from .store import iso_now
 
-LOG_DIR = Path(os.environ.get("AI_LOG_DIR") or ROOT / "logs")
 MAX_MEMORY = int(os.environ.get("AI_LOG_MEMORY", "200"))
 MAX_BODY = int(os.environ.get("AI_LOG_MAX_BODY", "200000"))
-TO_FILE = not re.match(r"^(0|false|no|off)$", os.environ.get("AI_LOG_FILE", "true"), re.I)
 
 # Not: "max_completion_tokens", "total_tokens" gibi sayaçlar maskelenmez
 _SECRET = re.compile(r"^(authorization|proxy-authorization|cookie|set-cookie|password|passwd|token|access_token|refresh_token|id_token|"
@@ -94,11 +90,9 @@ def record(service, kind, url, method="GET", request_headers=None, request_body=
     }
     with _lock:
         _entries.append(entry)
-    if TO_FILE:
-        try:
-            append_line(LOG_DIR / f"ai-{entry['time'][:10]}.jsonl", entry)
-        except OSError:
-            pass
+    from . import oplog
+
+    oplog.write_entry(service, entry)
     usage = (meta or {}).get("usage") or {}
     print(f"[{service}] {kind} {method} {entry['host']}{entry['path']} → {status if status is not None else 'ERR'} {duration_ms}ms"
           + (f" tokens={usage.get('total_tokens', '?')}" if usage else "") + (f" HATA: {error}" if error else ""), flush=True)

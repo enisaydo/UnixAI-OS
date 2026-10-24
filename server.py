@@ -26,7 +26,7 @@ from unixai.env import ROOT, env, load_env
 
 load_env()
 
-from unixai import (a2a, agent, analyzer, audit, auth, collector, connection, demo, diagnostics, genai, inventory,  # noqa: E402
+from unixai import (a2a, agent, oplog, analyzer, audit, auth, collector, connection, demo, diagnostics, genai, inventory,  # noqa: E402
                     logger, mcp_hub, morpheus, prompts, runs, settings, usage)
 from unixai.errors import ApiError  # noqa: E402
 
@@ -224,6 +224,15 @@ class Handler(BaseHTTPRequestHandler):
         else:
             out = mcp_hub.handle_rpc(msg, principal)
         for m, r in zip(msg if isinstance(msg, list) else [msg], out if isinstance(out, list) else [out]):
+            if isinstance(m, dict) and m.get("method") and not str(m["method"]).startswith("notifications/"):
+                p = m.get("params") or {}
+                bad = isinstance(r, dict) and (bool((r.get("result") or {}).get("isError")) or "error" in r)
+                oplog.log("mcp-sunucu", f"Araç çağrıldı: {p.get('name')}" if m["method"] == "tools/call" else m["method"], user=principal["client"],
+                          token=principal.get("tokenId"), ip=self.client_ip(), method=m["method"], tool=p.get("name"),
+                          args=logger.mask_body(json.dumps(p.get("arguments") or {}, ensure_ascii=False)) if m["method"] == "tools/call" else None,
+                          durationMs=int((time.monotonic() - t0) * 1000), ok=not bad,
+                          error=((r.get("error") or {}).get("message") or str(((r.get("result") or {}).get("content") or [{}])[0].get("text", ""))[:300]) if bad else None,
+                          quiet=True)
             if isinstance(m, dict) and m.get("method") == "tools/call" and isinstance(r, dict):
                 p = m.get("params") or {}
                 args = p.get("arguments") or {}
@@ -301,7 +310,12 @@ class Handler(BaseHTTPRequestHandler):
             self._actor = str(body.get("username") or "")[:80] or None
             if not auth.is_enabled():
                 return self.send_json(400, {"error": "Giriş etkin değil"})
-            user = auth.authenticate(body.get("username"), body.get("password"), self.client_ip())
+            try:
+                user = auth.authenticate(body.get("username"), body.get("password"), self.client_ip())
+            except Exception as e:
+                oplog.log("giris", "Giriş başarısız", user=str(body.get("username") or "")[:80], ip=self.client_ip(), error=str(e))
+                raise
+            oplog.log("giris", "Giriş başarılı", user=user.get("username"), ip=self.client_ip(), admin=user.get("isAdmin"))
             value, max_age = auth.create_session(user)
             return self.send_json(200, {"enabled": True, "user": user}, {"Set-Cookie": auth.cookie_header(value, max_age)})
         if route == "POST /api/auth/logout":
@@ -409,6 +423,8 @@ class Handler(BaseHTTPRequestHandler):
             return j(200, mcp_hub.save_connection(body, who["user"]))
         if route == "GET /api/a2a":
             return j(200, a2a.query(qs.get("server"), qs.get("peer")))
+        if route == "GET /api/oplogs":
+            return j(200, {"dir": str(oplog.LOG_DIR), "categories": oplog.files()})
         if route == "GET /api/audit":
             return j(200, audit.query(qs.get("from"), qs.get("to"), qs.get("user"), qs.get("q"), qs.get("failed") == "1"))
         if route == "GET /api/diagnostics":
@@ -506,18 +522,21 @@ class Handler(BaseHTTPRequestHandler):
                 return j(200, mcp_hub.test_connection(m.group(1)))
         m = re.match(r"^/api/servers/([^/]+)/diagnostic$", path)
         if method == "POST" and m:
-            return j(200, diagnostics.run(unquote(m.group(1)), body.get("check"), body.get("params") or {}))
+            return j(200, diagnostics.run(unquote(m.group(1)), body.get("check"), body.get("params") or {}, user=who["user"]))
+        m = re.match(r"^/api/oplogs/([a-z][a-z0-9-]{1,30})$", path)
+        if method == "GET" and m:
+            return j(200, oplog.read(m.group(1), qs.get("date"), qs.get("q"), qs.get("failed") == "1", int(qs.get("limit") or 500)))
         m = re.match(r"^/api/remediations/([\w-]+)$", path)
         if method == "GET" and m:
             return j(200, morpheus.refresh(m.group(1)))
-        m = re.match(r"^/api/remediations/([\w-]+)/(approve|reject|launch)$", path)
+        m = re.match(r"^/api/remediations/([\w-]+)/(approve|reject|launch|publish)$", path)
         if method == "POST" and m:
             # Onay yalnızca bir kişiden: API/MCP token'ları (ajanlar, otomasyon) onay veremez
             if (session and session.get("isApi")) or re.match(r"^Bearer\s", self.headers.get("authorization") or "", re.I):
                 return j(403, {"error": "Playbook onayı yalnızca UnixAI arayüzünden bir kişi tarafından verilebilir"})
             if not who.get("isAdmin"):
                 return j(403, {"error": "Onay için yönetici yetkisi gerekiyor"})
-            action = m.group(2) if m.group(2) != "launch" else ("run" if body.get("mode") == "run" else "check")
+            action = m.group(2) if m.group(2) != "launch" else ("run" if body.get("mode") == "run" else "check")  # publish: Bitbucket'a tekrar dene
             return j(200, morpheus.decide(m.group(1), action, who["user"], body))
         m = re.match(r"^/api/runs/([^/]+)$", path)
         if method == "GET" and m:
@@ -526,7 +545,7 @@ class Handler(BaseHTTPRequestHandler):
         m = re.match(r"^/api/logs/(.+)$", path)
         if method == "GET" and m:
             e = logger.get(unquote(m.group(1)))
-            return j(200, e) if e else j(404, {"error": "Log kaydı bulunamadı (servis yeniden başlatıldıysa yalnızca logs/ai-*.jsonl dosyasında)"})
+            return j(200, e) if e else j(404, {"error": "Log kaydı bulunamadı (servis yeniden başlatıldıysa Log Dosyaları ekranında: logs/genai/ klasörü)"})
         return j(404, {"error": "Bilinmeyen uç nokta", "route": route})
 
     # ---------------- statik dosyalar ----------------

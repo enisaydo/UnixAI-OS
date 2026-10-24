@@ -164,6 +164,10 @@ def _process_server(run: dict, src: dict, use_ai: bool):
     if not src["ok"]:
         _save_server(run, src["name"], {"server": src["name"], "host": src.get("host"), "collectedAt": src["collectedAt"], "ok": False,
                                         "error": src.get("error"), "sections": src.get("sections") or {}})
+        from . import oplog
+
+        oplog.log("toplama", "Sunucu toplanamadı", user=run["user"], run=run["id"], server=src["name"], host=src.get("host"), error=src.get("error") or "hata",
+                  durationMs=src.get("durationMs"))
         return None
 
     s = settings.get()
@@ -197,6 +201,11 @@ def _process_server(run: dict, src: dict, use_ai: bool):
             "summary": analysis["summary"][:400], "headline": head,
         })
         _save_run(run)
+    from . import oplog
+
+    oplog.log("toplama", "Sunucu toplandı ve analiz edildi", user=run["user"], run=run["id"], server=src["name"], score=analysis["health_score"],
+              status=analysis["status"], engine=analysis["engine"], findings=len(findings), p1=entry["p1"], aiError=analysis.get("aiError"),
+              durationMs=src.get("durationMs"), partial=bool(src.get("partial")) or None, quiet=True)
     return {"name": src["name"], "analysis": analysis}
 
 
@@ -263,6 +272,10 @@ def _start(run: dict, target, register: bool = True) -> dict:
             with _lock:
                 _active = None
             print(f"[run] {run['id']} {run['status']} ({len(run['servers'])} sunucu, AI: {'evet' if run['ai'] else 'hayır'})", flush=True)
+            from . import oplog
+
+            oplog.log("toplama", "Çalıştırma bitti", user=run["user"], run=run["id"], trigger=run["trigger"], status=run["status"], servers=len(run["servers"]),
+                      failed=sum(1 for s in run["servers"] if s.get("collect") == "failed"), ok=run["status"] != "failed", error=run.get("error"), quiet=True)
 
     with _lock:
         if _active:
@@ -270,6 +283,10 @@ def _start(run: dict, target, register: bool = True) -> dict:
         _active = run
         if register:
             _register(run)
+    from . import oplog
+
+    oplog.log("toplama", "Çalıştırma başladı", user=run["user"], ip=run.get("ip"), run=run["id"], trigger=run["trigger"], ai=run["ai"],
+              servers=[s["name"] for s in run["servers"]], quiet=True)
     threading.Thread(target=wrapper, name=f"run-{run['id']}", daemon=True).start()
     return copy.deepcopy(run)
 

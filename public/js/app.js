@@ -72,7 +72,7 @@ const pctCell = (v, warn, crit) =>
 /* ================================================================== */
 /*  Router                                                             */
 /* ================================================================== */
-const ROUTES = ["dashboard", "server", "runs", "collected", "ask", "a2a", "agent", "servers", "usage", "logs", "audit", "settings"];
+const ROUTES = ["dashboard", "server", "runs", "collected", "ask", "a2a", "agent", "servers", "usage", "logs", "audit", "oplogs", "settings"];
 
 function route() {
   const [name, ...rest] = location.hash.replace(/^#\/?/, "").split("/");
@@ -94,6 +94,7 @@ function route() {
   if (r === "a2a") loadA2A();
   if (r === "logs") loadLogs();
   if (r === "audit") loadAudit();
+  if (r === "oplogs") loadOplogs();
   if (r === "usage") loadUsage();
   if (r === "settings") loadSettingsPage();
   setLogAuto(r === "logs" && $("#logAuto").checked);
@@ -1317,7 +1318,7 @@ function toggleTheme() {
 const PAGES = [
   ["dashboard", "Genel Bakış", "dashboard"], ["runs", "Toplama & Analiz", "refresh"], ["collected", "Gelen Loglar", "logs"],
   ["ask", "UnixAI Ajanı", "chat"], ["a2a", "MorpheusAI (ajanlar arası)", "bolt"], ["agent", "Ajan & MCP", "sparkles"], ["servers", "Sunucular", "servers"], ["usage", "Token Kullanımı", "chart"],
-  ["logs", "AI Logları", "file"], ["audit", "İşlem Kayıtları", "list"], ["settings", "Ayarlar", "sliders"],
+  ["logs", "AI Logları", "file"], ["audit", "İşlem Kayıtları", "list"], ["oplogs", "Log Dosyaları", "file"], ["settings", "Ayarlar", "sliders"],
 ];
 const Palette = { items: [], sel: 0 };
 
@@ -1396,6 +1397,7 @@ const REM_STATUS = {
   generated: ["Onay bekliyor", "gold"], approved: ["Onaylı", "blue"], check_running: ["Check çalışıyor", "blue"],
   check_ok: ["Check başarılı", "green"], check_failed: ["Check hatalı", "red"], running: ["Uygulanıyor", "blue"],
   applied: ["Uygulandı", "green"], failed: ["Hatalı", "red"], rejected: ["Reddedildi", ""],
+  publishing: ["Bitbucket'a gönderiliyor", "blue"], publish_failed: ["Bitbucket/AAP hazırlığı hatalı", "red"],
 };
 const remTag = (s) => { const [l, c] = REM_STATUS[s] || [s || "—", ""]; return `<span class="label ${c}">${esc(l)}</span>`; };
 const morConfigured = () => Boolean(State.health?.morpheus?.configured);
@@ -1448,9 +1450,15 @@ function remDecideHtml(r) {
       `<button class="btn link sm danger" data-rem-act="reject" data-rem-id="${id}">Reddet</button>
        <button class="btn primary sm" data-rem-act="approve" data-rem-id="${id}">${icon("check", "i i-xs")}Onayla</button>`);
   const st = r.status;
-  if (st === "approved" || st === "check_running") return row("run", "clock", "Onaylandı — AAP'de check (dry-run) çalışıyor", by, refresh + open);
+  const scm = r.scm?.pushedAt ? ` Bitbucket: <a href="${esc(r.scm.url)}" target="_blank" rel="noopener"><code>${esc(r.scm.path)}</code></a>` : "";
+  const tpl = r.aapTemplate ? ` · AAP template: <b>${esc(r.aapTemplate.name)}</b>` : "";
+  if (st === "publishing") return row("run", "clock", "Onaylandı — playbook Bitbucket'a gönderiliyor, AAP hazırlanıyor", by, refresh + open);
+  if (st === "publish_failed")
+    return row("bad", "alert", "Bitbucket / AAP hazırlığı başarısız", `${by} <b>${esc(r.scm?.step || "")}</b>: ${esc(r.scm?.error || "")}${scm}`,
+      `<button class="btn primary sm" data-rem-act="publish" data-rem-id="${id}">${icon("refresh", "i i-xs")}Tekrar dene</button>` + open);
+  if (st === "approved" || st === "check_running") return row("run", "clock", "Onaylandı — AAP'de check (dry-run) çalışıyor", by + scm + tpl, refresh + open);
   if (st === "check_ok")
-    return row("ok", "check", "Check başarılı — sunucuya uygulanmaya hazır", `${by} Uygulama hedefi: <code>${esc(r.target || r.server || "")}</code>`,
+    return row("ok", "check", "Check başarılı — sunucuya uygulanmaya hazır", `${by} Uygulama hedefi: <code>${esc(r.target || r.server || "")}</code>${scm}${tpl}`,
       `${r.disruptive ? `<label class="check sm"><input type="checkbox" data-rem-disruptive /> Kesinti riskli adımlara izin ver</label>` : ""}
        <button class="btn primary sm" data-rem-act="run" data-rem-id="${id}" data-target="${esc(r.target || r.server || "")}">${icon("bolt", "i i-xs")}Sunucuya uygula</button>`);
   if (st === "check_failed")
@@ -1523,10 +1531,66 @@ function bindApprovals() {
       const r = await Api.remDecide(id, act === "run" || act === "check" ? "launch" : act, body);
       State.remLive[r.id] = r;
       $$(`[data-rem-live="${CSS.escape(r.id)}"]`).forEach((x) => (x.innerHTML = remDecideHtml(r)));
-      toast({ approve: "Onaylandı — MorpheusAI AAP'de check (dry-run) başlattı", reject: "Reddedildi", check: "Check başlatıldı", run: "Playbook sunucuya uygulanıyor" }[act]);
+      toast(r.status === "publish_failed" ? "Onaylandı ama Bitbucket/AAP hazırlığı başarısız — ayrıntı kartta" : { approve: "Onaylandı — MorpheusAI playbook'u hazırlayıp AAP'de check (dry-run) başlattı",
+        reject: "Reddedildi", publish: "Bitbucket'a gönderildi, AAP template'i hazırlandı", check: "Check başlatıldı", run: "Playbook sunucuya uygulanıyor" }[act], r.status === "publish_failed");
       refreshApprovals();
     } catch (err) { toast(err.message, true); b.disabled = false; }
   });
+}
+
+
+/* ================================================================== */
+/*  Log dosyaları (her kategori ayrı dosya)                            */
+/* ================================================================== */
+State.ol = { cat: "islem", date: "", cats: [] };
+
+async function loadOplogs() {
+  try {
+    const d = await Api.oplogs();
+    State.ol.cats = d.categories;
+    $("#olDir").textContent = d.dir;
+    $("#olCat").innerHTML = d.categories.map((c) => `<option value="${esc(c.category)}">${esc(c.label)} · ${c.files.length} dosya</option>`).join("");
+    $("#olCat").value = State.ol.cat;
+    fillOplogDates();
+    await loadOplogRows();
+  } catch (e) { $("#olTable").innerHTML = `<tr><td>${errorView(e)}</td></tr>`; }
+}
+
+function fillOplogDates() {
+  const c = State.ol.cats.find((x) => x.category === State.ol.cat);
+  const dates = (c?.files || []).map((f) => f.date);
+  const today = new Date().toISOString().slice(0, 10);
+  if (!dates.includes(today)) dates.unshift(today);
+  if (!dates.includes(State.ol.date)) State.ol.date = dates[0];
+  $("#olDate").innerHTML = dates.map((d) => `<option>${esc(d)}</option>`).join("");
+  $("#olDate").value = State.ol.date;
+  $("#olFile").textContent = `${c?.dir || ""}/${State.ol.cat}-${State.ol.date}.jsonl`;
+}
+
+async function loadOplogRows() {
+  try {
+    const r = await Api.oplog(State.ol.cat, { date: State.ol.date, q: $("#olQ").value.trim(), failed: $("#olFailed").checked ? "1" : "" });
+    $("#olCount").textContent = `${r.items.length} / ${r.total} kayıt`;
+    $("#olTable").innerHTML = `<tr><th>Zaman</th><th>İşlem</th><th>Kim / Sunucu</th><th>Sonuç</th><th>Süre</th><th></th></tr>` + (r.items.map((e) => {
+      const what = e.action || `${e.kind || ""} · ${e.method || ""} ${e.host || ""}${e.path || ""}`;
+      const who = [e.user || e.service, e.server].filter(Boolean).map(esc).join(" · ");
+      const code = typeof e.status === "number" ? e.status : typeof e.exitCode === "number" ? `çıkış ${e.exitCode}` : null;
+      const res = e.ok === false ? `<span class="label red">${esc(code ?? "hata")}</span>` : `<span class="label green">${esc(code ?? "ok")}</span>`;
+      return `<tr class="${e.ok === false ? "row-err" : ""}"><td class="mono t-sub">${esc(fmtTime(e.time))}</td>
+        <td>${esc(what)}${e.error ? `<div class="t-sub status-err">${esc(e.error)}</div>` : ""}</td>
+        <td class="t-sub">${who}</td><td>${res}</td><td class="mono t-sub">${e.durationMs != null ? `${esc(e.durationMs)} ms` : ""}</td>
+        <td><details><summary class="btn link sm">ayrıntı</summary><pre class="code-block ol-json">${esc(JSON.stringify(e, null, 2))}</pre></details></td></tr>`;
+    }).join("") || `<tr><td colspan="6" class="muted">Bu dosyada kayıt yok.</td></tr>`);
+  } catch (e) { $("#olTable").innerHTML = `<tr><td>${errorView(e)}</td></tr>`; }
+}
+
+function bindOplogs() {
+  $("#olCat").onchange = (e) => { State.ol.cat = e.target.value; State.ol.date = ""; fillOplogDates(); loadOplogRows(); };
+  $("#olDate").onchange = (e) => { State.ol.date = e.target.value; fillOplogDates(); loadOplogRows(); };
+  $("#olFailed").onchange = () => loadOplogRows();
+  let t;
+  $("#olQ").oninput = () => { clearTimeout(t); t = setTimeout(loadOplogRows, 300); };
+  $("#olRefresh").onclick = () => loadOplogs();
 }
 
 function remsPane() {
@@ -1949,6 +2013,7 @@ function bindEvents() {
   bindPalette();
   bindAgentPage();
   bindAudit();
+  bindOplogs();
   bindA2A();
   bindApprovals();
   $("#dashCollect").onclick = (e) => startRun("collect", e.target);

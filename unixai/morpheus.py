@@ -142,6 +142,7 @@ def _merge(rec: dict, r: dict) -> dict:
         "status": r.get("status"), "score": (r.get("compliance") or {}).get("score"), "engine": r.get("engine"),
         "runnable": r.get("runnable"), "approval": r.get("approval"), "playbookTitle": r.get("title"),
         "rejected": r.get("rejected"), "disruptive": r.get("disruptive"), "risk": r.get("risk"), "summary": r.get("summary"),
+        "delivery": r.get("delivery"), "scm": r.get("scm"), "aapTemplate": r.get("aapTemplate"),
         "lastJob": {k: last.get(k) for k in ("id", "mode", "status", "url")} if last else None,
         "refreshedAt": iso_now(), "url": link(r["id"]),
     })
@@ -205,7 +206,7 @@ def refresh(rem_id: str) -> dict:
 #  İnsan onayı (UnixAI ekranından MorpheusAI'ye aktarılır)
 # ------------------------------------------------------------------
 def decide(rem_id: str, action: str, user: str, body=None) -> dict:
-    """action: approve | reject | run | check — onaylayan kişi X-Approved-By ile iletilir"""
+    """action: approve | reject | publish | run | check — onaylayan kişi X-Approved-By ile iletilir"""
     if not re.match(r"^[\w-]{3,64}$", rem_id or ""):
         raise ApiError("Geçersiz kayıt numarası", 400)
     body = body or {}
@@ -213,6 +214,8 @@ def decide(rem_id: str, action: str, user: str, body=None) -> dict:
         _call("POST", f"/remediations/{rem_id}/approve", {}, kind="morpheus-approve", approved_by=user)
     elif action == "reject":
         _call("POST", f"/remediations/{rem_id}/reject", {"reason": str(body.get("reason") or "")[:500]}, kind="morpheus-reject", approved_by=user)
+    elif action == "publish":
+        _call("POST", f"/remediations/{rem_id}/publish", {}, kind="morpheus-publish", approved_by=user)
     elif action in ("run", "check"):
         _call("POST", f"/remediations/{rem_id}/launch", {"mode": action, "allowDisruptive": body.get("allowDisruptive") is True},
               kind=f"morpheus-launch-{action}", approved_by=user)

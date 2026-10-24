@@ -42,6 +42,9 @@ def record(direction, peer, question, answer=None, server=None, conversation_id=
            "server": server, "question": str(question or "")[:8000], "answer": str(answer or "")[:20000],
            "conversationId": conversation_id, "remoteConversationId": remote_conversation_id,
            "remediations": remediations or [], "tools": tools or [], "ok": ok, "error": (error or None) and str(error)[:500], "durationMs": duration_ms}
+    from . import oplog
+
+    oplog.write_entry("ajanlar-arasi", {**row, "category": "ajanlar-arasi", "action": f"UnixAI → {peer}" if direction == "giden" else f"{peer} → UnixAI"})
     append_line(file("a2a", f"{row['date']}.jsonl"), row)
     with _lock:
         _cache.pop(row["date"], None)

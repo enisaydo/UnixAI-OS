@@ -47,6 +47,7 @@ PATTERNS = [  # (method, path öneki/soneki, işlem)
     ("POST", "/approve", "Playbook onaylandı (MorpheusAI'ye aktarıldı)"),
     ("POST", "/reject", "Playbook reddedildi (MorpheusAI'ye aktarıldı)"),
     ("POST", "/launch", "Playbook AAP'de başlatıldı (MorpheusAI)"),
+    ("POST", "/publish", "Playbook Bitbucket'a gönderim tekrar denendi (MorpheusAI)"),
 ]
 
 
@@ -94,6 +95,9 @@ def record(user, ip, method, path, status, duration_ms, label=None, detail=None,
     }
     with _lock:
         _recent.append(row)
+    from . import oplog
+
+    oplog.write_entry("islem", {**row, "category": "islem"})
     try:
         append_line(file("audit", f"{row['date']}.jsonl"), row)
     except OSError as e:

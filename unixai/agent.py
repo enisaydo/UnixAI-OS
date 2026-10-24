@@ -18,6 +18,7 @@ import threading
 import time
 import uuid
 
+from . import oplog
 from . import a2a, genai, mcp_hub, prompts, tools, usage
 from .errors import ApiError
 from .store import file, iso_now, read_json, write_json
@@ -257,6 +258,8 @@ def run(messages: list, context=None, ctx=None, hop: int = 0, conversation_id=No
                     entry.update(where=ts.get(name, {}).get("conn", {}).get("name") if ts.get(name, {}).get("kind") == "remote" else "local", ok=False, error=str(e)[:500])
                 entry["durationMs"] = int((time.monotonic() - t0) * 1000)
                 conv["trace"].append(entry)
+                oplog.log("ajan", f"Araç: {name}", user=ctx.get("user"), conversation=conv["id"], step=step, where=entry.get("where"), durationMs=entry["durationMs"],
+                          ok=entry.get("ok") is not False, error=entry.get("error"), origin=conv.get("origin"), hop=hop, quiet=True)
                 if mode == "native":
                     msgs.append({"role": "tool", "tool_call_id": cid, "content": text})
                 else:

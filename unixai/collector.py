@@ -88,8 +88,21 @@ def ssh_args(server: dict, ssh: dict, remote_command: str) -> list:
     ]
 
 
-def run_ssh(server: dict, ssh: dict, remote_command: str, stdin: str = "") -> dict:
-    """ssh çalıştırır (kabuk yok). {code, stdout, stderr, durationMs, timedOut}"""
+def run_ssh(server: dict, ssh: dict, remote_command: str, stdin: str = "", purpose: str = "komut") -> dict:
+    """ssh çalıştırır (kabuk yok) ve logs/ssh/ dosyasına yazar. {code, stdout, stderr, durationMs, timedOut}"""
+    r = _run_ssh(server, ssh, remote_command, stdin)
+    from . import oplog
+
+    failed = r["timedOut"] or r["code"] != 0
+    oplog.log("ssh", f"SSH {purpose}", server=server.get("name"), host=server.get("host"), sshUser=server.get("user") or ssh["user"],
+              port=server.get("port") or ssh["port"], command=remote_command if remote_command != "bash -s" else f"bash -s ({purpose} betiği)",
+              exitCode=r["code"], durationMs=r["durationMs"], timedOut=r["timedOut"] or None, stdoutBytes=len(r["stdout"] or ""),
+              stderr=(r["stderr"] or "")[-500:] if failed and r["stderr"] else None,
+              ok=not failed, error=("zaman aşımı" if r["timedOut"] else f"çıkış kodu {r['code']}") if failed else None, quiet=not failed)
+    return r
+
+
+def _run_ssh(server: dict, ssh: dict, remote_command: str, stdin: str = "") -> dict:
     started = time.monotonic()
     timeout = ssh["connectTimeout"] + ssh["commandTimeout"]
     try:
@@ -126,7 +139,7 @@ def explain(stderr: str, server: dict, ssh: dict) -> str:
 
 
 def collect_one(server: dict, ssh: dict) -> dict:
-    r = run_ssh(server, ssh, "bash -s", COLLECT_SCRIPT)
+    r = run_ssh(server, ssh, "bash -s", COLLECT_SCRIPT, purpose="toplama")
     sections, complete = split_sections(r["stdout"])
     if r["timedOut"]:
         return {"ok": False, "error": f"Zaman aşımı ({ssh['connectTimeout'] + ssh['commandTimeout']} sn)", "sections": sections, "durationMs": r["durationMs"]}
@@ -138,7 +151,7 @@ def collect_one(server: dict, ssh: dict) -> dict:
 
 def test(server: dict, ssh: dict) -> dict:
     """Bağlantı testi: kimlik ve OS sürümü"""
-    r = run_ssh(server, ssh, "bash -s", 'echo "user=$(id -un) host=$(hostname -f 2>/dev/null || hostname)"; cat /etc/redhat-release 2>/dev/null\n')
+    r = run_ssh(server, ssh, "bash -s", 'echo "user=$(id -un) host=$(hostname -f 2>/dev/null || hostname)"; cat /etc/redhat-release 2>/dev/null\n', purpose="bağlantı testi")
     if r["code"] == 0 and "user=" in r["stdout"]:
         return {"ok": True, "output": r["stdout"].strip(), "durationMs": r["durationMs"]}
     return {"ok": False, "error": "Zaman aşımı" if r["timedOut"] else explain(r["stderr"], server, ssh), "durationMs": r["durationMs"]}

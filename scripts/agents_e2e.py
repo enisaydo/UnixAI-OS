@@ -12,7 +12,9 @@ Senaryo:
         MorpheusAI ajanı → morpheus_launch_remediation (check)  → REDDEDİLİR: playbook henüz onaylanmadı
         MorpheusAI ajanı → "Bu playbook'u yazdım, onayınızı bekliyor"
     UnixAI ajanı  → kullanıcıya özet + playbook (YAML) + Onayla/Reddet kartı
-  kullanıcı (UnixAI ekranı) → Onayla  → MorpheusAI (X-Approved-By) → AAP check (dry-run)
+  kullanıcı (UnixAI ekranı) → Onayla  → MorpheusAI (X-Approved-By)
+        → Bitbucket'a commit (ilk deneme yetki hatası → UnixAI'den "Tekrar dene")
+        → AAP proje sync → kayda özel job template → AAP check (dry-run)
   check başarılı → kullanıcı → Sunucuya uygula → AAP run
   hop sınırı: MorpheusAI ajanı (hop 1) UnixAI ajanına geri soru soramaz (yalnızca veri araçları açık)
 """
@@ -32,9 +34,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 MDIR = Path(os.environ.get("MORPHEUS_DIR", ROOT.parent / "MorpheusAI")).resolve()
-GW, AAP, UX, MP = 3951, 3953, 3954, 3955
+GW, AAP, UX, MP, BB = 3951, 3953, 3954, 3955, 3956
 fails = 0
-seen = {"unixai_tools": [], "morpheus_tools": [], "aap": [], "rid": None, "jobs": {}}
+seen = {"unixai_tools": [], "morpheus_tools": [], "aap": [], "rid": None, "jobs": {}, "bb": {}, "bb_deny": True, "synced": [], "templates": []}
 
 
 def check(c, msg):
@@ -124,20 +126,65 @@ class FakeAAP(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
 
-    def do_POST(self):
-        b = json.loads(self.rfile.read(int(self.headers["content-length"])))
-        seen["aap"].append(b)
-        out = json.dumps({"job": 900 + len(seen["aap"]), "status": "pending", "ignored_fields": {}}).encode()
-        self.send_response(201)
+    def j(self, code, o):
+        out = json.dumps(o).encode()
+        self.send_response(code)
         self.send_header("content-type", "application/json")
         self.send_header("content-length", str(len(out)))
         self.end_headers()
         self.wfile.write(out)
 
+    def do_POST(self):
+        n = int(self.headers.get("content-length") or 0)
+        b = json.loads(self.rfile.read(n) or b"{}")
+        path = self.path.split("?")[0]
+        if path == "/api/v2/projects/7/update/":
+            seen["synced"] = list(seen["bb"])
+            return self.j(202, {"project_update": 77, "status": "pending"})
+        if path == "/api/v2/job_templates/":
+            if b.get("playbook") not in seen["synced"]:
+                return self.j(400, {"playbook": ["Playbook not found for project."]})
+            t = {"id": 500 + len(seen["templates"]), **b}
+            seen["templates"].append(t)
+            return self.j(201, t)
+        if re.match(r"^/api/v2/job_templates/\d+/credentials/$", path):
+            return self.j(204, {})
+        b["template"] = path.split("/")[4]
+        seen["aap"].append(b)
+        return self.j(201, {"job": 900 + len(seen["aap"]), "status": "pending", "ignored_fields": {}})
+
     def do_GET(self):
-        jid = int(self.path.rstrip("/").split("/")[-1])
-        out = json.dumps({"id": jid, "status": seen["jobs"].get(jid, "pending")}).encode()
-        self.send_response(200)
+        path = self.path.split("?")[0]
+        if path == "/api/v2/project_updates/77/":
+            return self.j(200, {"id": 77, "status": "successful"})
+        if path == "/api/v2/projects/7/playbooks/":
+            return self.j(200, seen["synced"])
+        if path == "/api/v2/job_templates/":
+            from urllib.parse import parse_qs, urlsplit
+            name = parse_qs(urlsplit(self.path).query).get("name", [""])[0]
+            return self.j(200, {"results": [t for t in seen["templates"] if t["name"] == name]})
+        jid = int(path.rstrip("/").split("/")[-1])
+        return self.j(200, {"id": jid, "status": seen["jobs"].get(jid, "pending")})
+
+
+class FakeBitbucket(BaseHTTPRequestHandler):
+    """Bitbucket Server REST: PUT /rest/api/1.0/projects/OPS/repos/ansible-ops/browse/<yol>"""
+    def log_message(self, *a):
+        pass
+
+    def do_PUT(self):
+        body = self.rfile.read(int(self.headers["content-length"])).decode()
+        def field(name):
+            m = re.search(r'name="' + name + r'"\r\n\r\n([\s\S]*?)\r\n--', body)
+            return m.group(1) if m else None
+        if seen["bb_deny"]:
+            code, o = 403, {"errors": [{"message": "You are not permitted to access this resource"}]}
+        else:
+            fp = self.path.split("/browse/", 1)[1]
+            seen["bb"][fp] = {"content": field("content"), "message": field("message"), "branch": field("branch")}
+            code, o = 200, {"id": "c0ffee" + "0" * 34}
+        out = json.dumps(o).encode()
+        self.send_response(code)
         self.send_header("content-type", "application/json")
         self.send_header("content-length", str(len(out)))
         self.end_headers()
@@ -158,7 +205,7 @@ def call(port, path, body=None, method=None, token=None, headers=None):
 
 
 def main():
-    for port, h in ((GW, Gateway), (AAP, FakeAAP)):
+    for port, h in ((GW, Gateway), (AAP, FakeAAP), (BB, FakeBitbucket)):
         threading.Thread(target=ThreadingHTTPServer(("127.0.0.1", port), h).serve_forever, daemon=True).start()
     ud, md = tempfile.mkdtemp(prefix="ux-e2e-"), tempfile.mkdtemp(prefix="mp-e2e-")
     common = {**os.environ, "PYTHONIOENCODING": "utf-8", "LDAP_SERVER": "", "ADMIN_PASSWORD": ""}
@@ -168,7 +215,10 @@ def main():
                           env={**common, "PORT": str(MP), "MORPHEUS_MODE": "genai", "MORPHEUS_DATA_DIR": md, "AI_LOG_FILE": "false",
                                "TMS_TOKEN_URL": f"http://127.0.0.1:{GW}/token", "TMS_BODY": "{}", "TMS_TOKEN_SOURCE": "header",
                                "CHAT_URL": f"http://127.0.0.1:{GW}/chat", "CHAT_MODEL": "gpt-test", "CHAT_BODY_EXTRA": "{}",
-                               "AAP_URL": f"http://127.0.0.1:{AAP}", "AAP_TOKEN": "aap", "AAP_API_PREFIX": "/api/v2", "REMEDIATION_JOB_TEMPLATE_ID": "42"})
+                               "AAP_URL": f"http://127.0.0.1:{AAP}", "AAP_TOKEN": "aap", "AAP_API_PREFIX": "/api/v2", "AAP_POLL_MS": "100",
+                               "AAP_PROJECT_ID": "7", "AAP_INVENTORY_ID": "3", "AAP_CREDENTIAL_IDS": "11",
+                               "BITBUCKET_URL": f"http://127.0.0.1:{BB}", "BITBUCKET_TOKEN": "bb-token", "BITBUCKET_PROJECT": "OPS",
+                               "BITBUCKET_REPO": "ansible-ops", "BITBUCKET_BRANCH": "main", "LOG_DIR": md + "/logs", "LOG_FILE": "true"})
     try:
         for _ in range(80):
             try:
@@ -229,8 +279,17 @@ def main():
         except RuntimeError as e:
             check(" 401 " in str(e) or " 403 " in str(e), "API token ile UnixAI üzerinden onay engellendi")
         a = call(UX, f"/remediations/{rid}/approve", {}, headers={"x-unixai-user": "EnisA"})
-        check(a["approval"]["by"] == "EnisA (unixai üzerinden)" and len(seen["aap"]) == 1 and seen["aap"][0]["job_type"] == "check" and seen["aap"][0]["limit"] == "rhel-db01",
-              "onay MorpheusAI'ye aktarıldı (onaylayan EnisA) → AAP'de check (dry-run) başladı, hedef rhel-db01")
+        check(a["approval"]["by"] == "EnisA (unixai üzerinden)" and a["status"] == "publish_failed" and "403" in (a.get("scm") or {}).get("error", "") and not seen["aap"],
+              "onay aktarıldı (EnisA); Bitbucket yetki hatası UnixAI kartında görünüyor, AAP'de iş yok")
+        seen["bb_deny"] = False
+        a = call(UX, f"/remediations/{rid}/publish", {}, headers={"x-unixai-user": "EnisA"})
+        fp = f"playbooks/unixai/rhel-db01/{rid}.yml"
+        check(fp in seen["bb"] and 'hosts: "{{ target_host }}"' in seen["bb"][fp]["content"] and seen["bb"][fp]["branch"] == "main" and "EnisA" in seen["bb"][fp]["message"],
+              f"UnixAI'den 'Tekrar dene' → playbook Bitbucket'a commit edildi ({fp})")
+        t = (seen["templates"] or [{}])[0]
+        check(t.get("playbook") == fp and t.get("project") == 7 and a["aapTemplate"]["id"] == str(t.get("id")), "AAP projesi sync edildi → kayda özel job template oluşturuldu")
+        check(len(seen["aap"]) == 1 and seen["aap"][0]["job_type"] == "check" and seen["aap"][0]["limit"] == "rhel-db01" and seen["aap"][0]["template"] == str(t.get("id")),
+              "yeni template ile AAP'de check (dry-run) başladı, hedef rhel-db01")
         check(not call(UX, "/approvals")["items"], "onaydan sonra bekleyen onay kalmadı")
         try:
             call(UX, f"/remediations/{rid}/launch", {"mode": "run"})
@@ -243,7 +302,19 @@ def main():
         run = call(UX, f"/remediations/{rid}/launch", {"mode": "run"}, headers={"x-unixai-user": "EnisA"})
         check(len(seen["aap"]) == 2 and seen["aap"][1]["job_type"] == "run" and run["status"] == "running", "kişi UnixAI'den 'Sunucuya uygula' dedi → AAP run")
         au = [x for x in call(UX, "/audit")["records"] if "Playbook" in str(x.get("action", ""))]
-        check(len(au) >= 2, "onay ve uygulama İşlem Kayıtları'na düştü")
+        check(len(au) >= 3, "onay, tekrar deneme ve uygulama İşlem Kayıtları'na düştü")
+        print("\n[Log dosyaları]")
+        today = time.strftime("%Y-%m-%d", time.gmtime())
+        mcats = {c["category"]: c for c in call(MP, "/oplogs")["categories"]}
+        check(all(mcats.get(c, {}).get("files") for c in ("islem", "duzeltme", "bitbucket", "aap", "genai", "mcp-sunucu", "mcp-istemci", "ajan", "ajanlar-arasi")),
+              "MorpheusAI: islem, duzeltme, bitbucket, aap, genai, mcp-sunucu, mcp-istemci, ajan, ajanlar-arasi ayrı dosyalarda")
+        dz = [x["action"] for x in call(MP, f"/oplogs/duzeltme?date={today}")["items"]][::-1]
+        steps = ["Playbook üretildi", "Playbook onaylandı", "hazırlığı başarısız", "Bitbucket'a commit", "AAP projesi", "job template", "Check (dry-run)", "Gerçek çalıştırma"]
+        pos = [next((i for i, a in enumerate(dz) if k in a), -1) for k in steps]
+        check(all(p >= 0 for p in pos) and pos == sorted(pos), "MorpheusAI duzeltme logu: üretim → onay → hata → commit → sync → template → check → run sırasıyla")
+        ucats = {c["category"]: c for c in call(UX, "/oplogs")["categories"]}
+        check(all(ucats.get(c, {}).get("files") for c in ("islem", "morpheus", "genai", "mcp-istemci", "mcp-sunucu", "ajan", "ajanlar-arasi")),
+              "UnixAI: islem, morpheus, genai, mcp-istemci, mcp-sunucu, ajan, ajanlar-arasi ayrı dosyalarda")
         call(UX, "/chat", {"messages": [{"role": "user", "content": "rhel-db01 nasıl?"}], "agent": False})
         check(len(call(UX, "/a2a")["items"]) == 1, "kullanıcı sohbetleri ajanlar arası kayda karışmıyor")
         if os.environ.get("E2E_KEEP"):  # arayüzü incelemek için süreçleri açık tut
