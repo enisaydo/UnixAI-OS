@@ -39,6 +39,7 @@
       <a href="#/collected" data-route="collected"><svg class="i" data-icon="logs"></svg>Gelen Loglar</a>
       <a href="#/ask" data-route="ask"><svg class="i" data-icon="chat"></svg>UnixAI Ajanı</a>
       <div class="nav-group">Yönetim</div>
+      <a href="#/a2a" data-route="a2a"><svg class="i" data-icon="bolt"></svg>MorpheusAI</a>
       <a href="#/agent" data-route="agent"><svg class="i" data-icon="sparkles"></svg>Ajan &amp; MCP</a>
       <a href="#/servers" data-route="servers"><svg class="i" data-icon="servers"></svg>Sunucular</a>
       <a href="#/usage" data-route="usage"><svg class="i" data-icon="chart"></svg>Token Kullanımı</a>
@@ -165,6 +166,24 @@
               <button class="btn primary" type="submit" id="chatSend">Gönder</button>
             </div>
           </form>
+        </div>
+      </section>
+
+      <!-- ---------- AJANLAR ARASI (MorpheusAI) ---------- -->
+      <section class="view" data-view="a2a">
+        <div class="page-head">
+          <div><h1>MorpheusAI</h1><p>Yalnızca <b>UnixAI</b> ile <b>MorpheusAI ajanı</b> arasındaki konuşmalar. Kullanıcı sohbetlerinden ayrı tutulur; MorpheusAI'nin hazırladığı playbook'lar YAML olarak burada görünür.</p></div>
+          <div class="toolbar">
+            <select id="a2aPeer" class="input sm"><option value="">Tüm ajanlar</option></select>
+            <input id="a2aServer" class="input sm" placeholder="Sunucu adı" />
+            <button class="btn" id="a2aRefresh"><svg class="i" data-icon="refresh"></svg>Yenile</button>
+          </div>
+        </div>
+        <div class="a2a-flow"><span class="a2a-node">UnixAI ajanı</span><span class="a2a-wire">⇄ MCP (/mcp, Bearer token) ⇄</span><span class="a2a-node peer">MorpheusAI ajanı</span>
+          <span class="muted sm">Konuşmayı bir kullanıcı (Ajan ekranı) veya karşı ajan başlatır; her soru-cevap burada kaydedilir.</span></div>
+        <div class="a2a-layout">
+          <div class="card a2a-list" id="a2aList"></div>
+          <div class="card a2a-detail" id="a2aDetail"></div>
         </div>
       </section>
 

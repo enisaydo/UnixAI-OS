@@ -90,6 +90,8 @@ const Api = (() => {
 
     logs: () => request("/logs?limit=200"),
     audit: (q = {}) => request(`/audit?${qs(q)}`),
+    a2a: (q = {}) => request(`/a2a?${qs(q)}`),
+    a2aItem: (id) => request(`/a2a/${enc(id)}`),
     log: (id) => request(`/logs/${enc(id)}`),
     usage: (q = {}) => request(`/usage?${qs(q)}`),
     usageToday: () => request("/usage/today"),

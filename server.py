@@ -26,7 +26,7 @@ from unixai.env import ROOT, env, load_env
 
 load_env()
 
-from unixai import (agent, analyzer, audit, auth, collector, connection, demo, diagnostics, genai, inventory,  # noqa: E402
+from unixai import (a2a, agent, analyzer, audit, auth, collector, connection, demo, diagnostics, genai, inventory,  # noqa: E402
                     logger, mcp_hub, morpheus, prompts, runs, settings, usage)
 from unixai.errors import ApiError  # noqa: E402
 
@@ -407,6 +407,8 @@ class Handler(BaseHTTPRequestHandler):
             return j(200, mcp_hub.connections_view())
         if route == "POST /api/mcp/connections":
             return j(200, mcp_hub.save_connection(body, who["user"]))
+        if route == "GET /api/a2a":
+            return j(200, a2a.query(qs.get("server"), qs.get("peer")))
         if route == "GET /api/audit":
             return j(200, audit.query(qs.get("from"), qs.get("to"), qs.get("user"), qs.get("q"), qs.get("failed") == "1"))
         if route == "GET /api/diagnostics":
@@ -481,6 +483,10 @@ class Handler(BaseHTTPRequestHandler):
                     return j(200, {"server": name, "run": s["run"], "collectedAt": s["collectedAt"], "sections": s["sections"],
                                    "stderr": s.get("stderr"), "missing": s.get("missing")})
                 return j(200, {**{k: v for k, v in s.items() if k != "sections"}, "inventory": inventory.get(name)})
+        m = re.match(r"^/api/a2a/([0-9a-f]{16})$", path)
+        if method == "GET" and m:
+            r = a2a.get(m.group(1))
+            return j(200, r) if r else j(404, {"error": "Kayıt bulunamadı"})
         m = re.match(r"^/api/agent/conversations/([0-9a-f]{16})$", path)
         if method == "GET" and m:
             c = agent.conversation(m.group(1))

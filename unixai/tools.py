@@ -5,7 +5,7 @@ yalnızca readonly araçları görür.
 """
 from __future__ import annotations
 
-from . import diagnostics, inventory, morpheus, runs
+from . import a2a, diagnostics, inventory, morpheus, runs
 from .errors import ApiError
 
 
@@ -99,16 +99,32 @@ def list_remediations(a, _ctx):
 
 
 def agent_ask(a, ctx):
+    import time
     from . import agent  # döngüsel içe aktarma
     c = a.get("context") or {}
-    r = agent.run(
+    peer = c.get("from") or ctx.get("client") or "mcp"
+    server = a2a.detect_server(a.get("question"), explicit=a.get("server"))
+    t0 = time.monotonic()
+    try:
+        r = _agent_run(agent, a, ctx, c)
+    except Exception as e:
+        a2a.record("gelen", peer, a.get("question"), server=server, remote_conversation_id=c.get("conversation_id"), ok=False, error=e,
+                   duration_ms=int((time.monotonic() - t0) * 1000), user=ctx.get("user"))
+        raise
+    a2a.record("gelen", peer, a.get("question"), r["reply"], server=server, conversation_id=r["conversationId"],
+               remote_conversation_id=c.get("conversation_id"), tools=[t["tool"] for t in r["trace"] if t.get("tool")],
+               duration_ms=int((time.monotonic() - t0) * 1000), user=ctx.get("user"))
+    return {"answer": r["reply"], "conversationId": r["conversationId"], "steps": len(r["trace"]),
+            "tools_used": [t["tool"] for t in r["trace"] if t.get("tool")], "server": server}
+
+
+def _agent_run(agent, a, ctx, c):
+    return agent.run(
         [{"role": "user", "content": a["question"]}],
         context={"server": a["server"]} if a.get("server") else None,
         ctx={**ctx, "source": c.get("from") or ctx.get("source") or "mcp", "readonly": ctx.get("readonly", False)},
         hop=int(c.get("hop") or 1), conversation_id=c.get("conversation_id"), origin=c.get("from") or ctx.get("client"),
     )
-    return {"answer": r["reply"], "conversationId": r["conversationId"], "steps": len(r["trace"]),
-            "tools_used": [t["tool"] for t in r["trace"] if t.get("tool")]}
 
 
 DIAG_SCHEMA = {"type": "object", "required": ["server", "check"], "properties": {

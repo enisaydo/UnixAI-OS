@@ -72,7 +72,7 @@ const pctCell = (v, warn, crit) =>
 /* ================================================================== */
 /*  Router                                                             */
 /* ================================================================== */
-const ROUTES = ["dashboard", "server", "runs", "collected", "ask", "agent", "servers", "usage", "logs", "audit", "settings"];
+const ROUTES = ["dashboard", "server", "runs", "collected", "ask", "a2a", "agent", "servers", "usage", "logs", "audit", "settings"];
 
 function route() {
   const [name, ...rest] = location.hash.replace(/^#\/?/, "").split("/");
@@ -91,6 +91,7 @@ function route() {
   if (r === "ask") { renderChatContext(arg); setTimeout(() => $("#chatText").focus(), 50); }
   if (r === "servers") loadInventory();
   if (r === "agent") loadAgentPage();
+  if (r === "a2a") loadA2A();
   if (r === "logs") loadLogs();
   if (r === "audit") loadAudit();
   if (r === "usage") loadUsage();
@@ -280,7 +281,8 @@ async function loadServer(name, run) {
   $("#sdVitals").classList.add("hidden");
   $("#sdAsk").href = `#/ask/${encodeURIComponent(name)}`;
   $("#sdBody").innerHTML = loadingView("Yükleniyor…");
-  const [snap, hist, rems] = await Promise.allSettled([Api.snapshot(name, run), Api.serverHistory(name), Api.remediations(name)]);
+  const [snap, hist, rems, a2as] = await Promise.allSettled([Api.snapshot(name, run), Api.serverHistory(name), Api.remediations(name), Api.a2a({ server: name })]);
+  State.sd.a2aCount = a2as.status === "fulfilled" ? a2as.value.items.length : 0;
   State.sd.hist = hist.status === "fulfilled" ? hist.value : [];
   State.sd.rems = rems.status === "fulfilled" ? rems.value.items : [];
   $("#sdRun").innerHTML = State.sd.hist.map((h) => `<option value="${esc(h.runId)}">${esc(fmtTime(h.time))} · ${h.collect === "failed" ? "ulaşılamadı" : `skor ${h.score ?? "—"}`}</option>`).join("");
@@ -326,7 +328,7 @@ function renderServer() {
   const p1 = a.action_items.filter((x) => x.priority === "P1").length;
   const tabs = [
     ["actions", `Aksiyonlar · ${a.action_items.length}`], ["anomalies", `Anomaliler · ${a.anomalies.length}`],
-    ["rules", `Kural bulguları · ${s.findings.length}`], ["rems", `Düzeltmeler · ${(State.sd.rems || []).length}`], ["metrics", "Metrikler"], ["trend", "Trend"], ["raw", "Ham loglar"], ["ai", "AI çağrısı"],
+    ["rules", `Kural bulguları · ${s.findings.length}`], ["rems", `MorpheusAI · ${(State.sd.a2aCount || 0) + (State.sd.rems || []).length}`], ["metrics", "Metrikler"], ["trend", "Trend"], ["raw", "Ham loglar"], ["ai", "AI çağrısı"],
   ];
   $("#sdBody").innerHTML = `
     ${last && last.runId !== s.run.id && !State.sd.run && last.collect === "failed" ? `<div class="alert danger"><b>Son toplama başarısız (${esc(fmtTime(last.time))}):</b> ${esc(last.error)} — aşağıda son başarılı veri gösteriliyor.</div>` : ""}
@@ -372,7 +374,11 @@ function renderServerTab() {
     pane.querySelectorAll("[data-copy-cmd]").forEach((b) => (b.onclick = () => copyText(a.action_items[+b.dataset.copyCmd].commands.join("\n"))));
     pane.querySelectorAll("[data-send-rem]").forEach((b) => (b.onclick = () => sendRemediation(+b.dataset.sendRem, b)));
   } else if (t === "rems") {
-    pane.innerHTML = remsPane();
+    pane.innerHTML = `<div class="sub-h">Ajanlar arası konuşmalar (yalnızca bu sunucu)</div>
+      <div class="a2a-layout"><div class="a2a-list" id="sdA2aList"></div><div class="a2a-detail" id="sdA2aDetail"></div></div>
+      <div class="sub-h">MorpheusAI'ye gönderilen aksiyonlar</div>` + remsPane();
+    loadA2A("#sdA2aList", "#sdA2aDetail", State.sd.name);
+    pane.querySelectorAll("[data-rem-yaml]").forEach((b) => (b.onclick = () => showRemYaml(b.dataset.remYaml)));
     $("#remReload").onclick = async () => {
       try { State.sd.rems = (await Api.remediations(State.sd.name)).items; renderServer(); } catch (e) { toast(e.message, true); }
     };
@@ -1307,7 +1313,7 @@ function toggleTheme() {
 
 const PAGES = [
   ["dashboard", "Genel Bakış", "dashboard"], ["runs", "Toplama & Analiz", "refresh"], ["collected", "Gelen Loglar", "logs"],
-  ["ask", "UnixAI Ajanı", "chat"], ["agent", "Ajan & MCP", "sparkles"], ["servers", "Sunucular", "servers"], ["usage", "Token Kullanımı", "chart"],
+  ["ask", "UnixAI Ajanı", "chat"], ["a2a", "MorpheusAI (ajanlar arası)", "bolt"], ["agent", "Ajan & MCP", "sparkles"], ["servers", "Sunucular", "servers"], ["usage", "Token Kullanımı", "chart"],
   ["logs", "AI Logları", "file"], ["audit", "İşlem Kayıtları", "list"], ["settings", "Ayarlar", "sliders"],
 ];
 const Palette = { items: [], sel: 0 };
@@ -1425,8 +1431,17 @@ function remsPane() {
       <td>${remTag(r.status)}</td><td>${r.score != null ? scoreBar(r.score) : "—"}</td>
       <td class="t-sub">${r.lastJob ? `#${esc(r.lastJob.id)} ${esc(r.lastJob.mode)} · ${esc(r.lastJob.status)}` : "—"}</td>
       <td class="mono">${esc(r.target || "")}</td>
-      <td><a class="btn link sm" href="${esc(r.url)}" target="_blank" rel="noopener">MorpheusAI'de aç</a></td></tr>`).join("") ||
+      <td class="row-actions"><button class="btn link sm" data-rem-yaml="${esc(r.id)}">YAML</button><a class="btn link sm" href="${esc(r.url)}" target="_blank" rel="noopener">MorpheusAI'de aç</a></td></tr>`).join("") ||
       `<tr><td colspan="7" class="muted">Henüz gönderilmedi. Aksiyonlar sekmesinde <b>MorpheusAI'ye gönder</b>'e basın.</td></tr>`}</table></div>`;
+}
+
+async function showRemYaml(id) {
+  modal("Playbook (MorpheusAI)", loadingView("MorpheusAI'den alınıyor…"), { wide: true });
+  try {
+    const r = await Api.remediation(id);
+    $("#modalBody").innerHTML = remCard({ ...r, title: r.playbookTitle || r.title, summary: null, lastJob: r.lastJob, approval: r.approval });
+    $$("[data-copy-yaml]", $("#modalBody")).forEach((b) => (b.onclick = () => copyText(r.playbook || "")));
+  } catch (e) { $("#modalBody").innerHTML = errorView(e); }
 }
 
 async function loadMorpheus() {
@@ -1687,6 +1702,99 @@ function bindAudit() {
   $("#auditTable").onclick = (e) => { const tr = e.target.closest("[data-audit]"); if (tr) showAudit(+tr.dataset.audit); };
 }
 
+const SELF_AGENT = "UnixAI ajanı", SELF_SHORT = "UnixAI", PEER_HINT = "MorpheusAI";
+const A2A_EMPTY = "Henüz MorpheusAI ajanıyla konuşma yok. UnixAI Ajanı ekranında örneğin: <i>'rhel-db01 P1 bulgusu için MorpheusAI'den playbook iste'</i>";
+/* ================================================================== */
+/*  Ajanlar arası konuşmalar (yalnızca iki ajanın kendi aralarındaki mesajlar) */
+/* ================================================================== */
+State.a2a = { peer: "", server: "", sel: null };
+const peerTitle = (p) => (/morpheus/i.test(p) ? "MorpheusAI ajanı" : /unixai/i.test(p) ? "UnixAI ajanı" : `${p} ajanı`);
+
+function remCard(x) {
+  const st = typeof remTag === "function" ? remTag(x.status) : `<span class="label">${esc(x.status || "")}</span>`;
+  const yaml = x.playbook || "";
+  return `<div class="a2a-rem">
+    <div class="a2a-rem-h"><b>${esc(x.title || x.id)}</b> ${st} ${x.score != null ? `<span class="label ${x.score >= 85 ? "green" : x.score >= 60 ? "gold" : "red"}">uyum ${x.score}</span>` : ""}
+      ${x.risk ? `<span class="label">risk: ${esc(x.risk)}</span>` : ""}${x.disruptive ? `<span class="label gold">kesinti riskli adım</span>` : ""}
+      <span class="a2a-rem-meta mono">${esc(x.id)}${x.target ? ` · hedef ${esc(x.target)}` : ""}</span></div>
+    ${x.summary ? `<p class="muted sm">${esc(x.summary)}</p>` : ""}
+    ${x.violations?.length ? `<div class="sm status-err">Standart ihlalleri: ${x.violations.map(esc).join(" · ")}</div>` : ""}
+    ${yaml ? `<div class="fix"><pre class="yaml">${esc(yaml)}</pre><button class="btn link sm copy" data-copy-yaml="${esc(x.id)}">YAML kopyala</button></div>` : `<p class="muted sm">YAML bu kayıtta yok.</p>`}
+    <div class="toolbar end">${x.lastJob ? `<span class="muted sm">Son AAP işi #${esc(x.lastJob.id)} ${esc(x.lastJob.mode)} · ${esc(x.lastJob.status)}</span>` : ""}
+      ${x.approval ? `<span class="label blue">Onaylayan: ${esc(x.approval.by)}</span>` : ""}
+      ${x.url ? `<a class="btn sm" href="${esc(x.url)}" target="_blank" rel="noopener">MorpheusAI'de aç / onayla</a>`
+        : SELF_SHORT === "Morpheus" ? `<a class="btn sm" href="#/remediations/${esc(x.id)}">Düzeltmeler'de aç / onayla</a>` : ""}</div>
+  </div>`;
+}
+
+function a2aTranscript(r) {
+  const out = r.direction === "giden";
+  const asker = out ? SELF_AGENT : peerTitle(r.peer), answerer = out ? peerTitle(r.peer) : SELF_AGENT;
+  const rems = r.remediations || [];
+  State.a2aYaml = Object.fromEntries(rems.map((x) => [x.id, x.playbook || ""]));
+  return `<div class="a2a-head"><span class="label ${out ? "blue" : "green"}">${out ? "giden" : "gelen"}</span>
+      <b>${esc(asker)}</b> → <b>${esc(answerer)}</b>${r.server ? ` · sunucu <code>${esc(r.server)}</code>` : ""}
+      <span class="muted sm">${esc(fmtTime(r.time))}${r.durationMs != null ? ` · ${fmtDur(r.durationMs)}` : ""}${r.user ? ` · başlatan ${esc(r.user)}` : ""}</span></div>
+    <div class="a2a-chat">
+      <div class="a2a-msg ${out ? "self" : "peer"}"><div class="a2a-who">${esc(asker)}</div><div class="bubble">${esc(r.question).replace(/\n/g, "<br>")}</div></div>
+      <div class="a2a-msg ${out ? "peer" : "self"}"><div class="a2a-who">${esc(answerer)}</div>
+        <div class="bubble ${r.ok ? "" : "error"}">${r.ok ? md(r.answer || "") : `<b>Hata:</b> ${esc(r.error || "")}`}
+        ${r.tools?.length ? `<div class="muted sm a2a-tools">Kullandığı araçlar: ${r.tools.map((t) => `<code>${esc(t)}</code>`).join(" ")}</div>` : ""}</div></div>
+    </div>
+    ${rems.length ? `<div class="sub-h">Hazırlanan playbook'lar (${rems.length})</div>${rems.map(remCard).join("")}` : ""}`;
+}
+
+function a2aList(items) {
+  return items.map((x) => `<div class="a2a-item ${State.a2a.sel === x.id ? "on" : ""} ${x.ok ? "" : "err"}" data-a2a="${esc(x.id)}">
+      <div class="a2a-item-h"><span class="a2a-dir">${x.direction === "giden" ? `${esc(SELF_SHORT)} → ${esc(x.peer)}` : `${esc(x.peer)} → ${esc(SELF_SHORT)}`}</span>
+        ${x.server ? `<code>${esc(x.server)}</code>` : ""}<span class="muted sm">${esc(fmtTime(x.time))}</span></div>
+      <div class="a2a-q">${esc(x.question)}</div>
+      ${x.remediations?.length ? `<div class="a2a-badges">${x.remediations.map((m) => `<span class="label ${m.score >= 85 ? "green" : "gold"}">playbook${m.score != null ? ` · ${m.score}` : ""}</span>`).join(" ")}</div>` : ""}
+    </div>`).join("") || `<div class="empty sm">Henüz ajanlar arası konuşma yok.<br>Ajan ekranında karşı ajana iş verin (ör. "…için ${esc(PEER_HINT)}'den playbook iste").</div>`;
+}
+
+async function loadA2A(targetList = "#a2aList", targetDetail = "#a2aDetail", server = State.a2a.server) {
+  try {
+    const r = await Api.a2a({ server, peer: State.a2a.peer });
+    if ($("#a2aPeer")) {
+      const ps = $("#a2aPeer"), cur = ps.value;
+      ps.innerHTML = `<option value="">Tüm ajanlar</option>` + r.peers.map((p) => `<option>${esc(p)}</option>`).join("");
+      ps.value = r.peers.includes(cur) ? cur : "";
+    }
+    $(targetList).innerHTML = a2aList(r.items);
+    $(targetList).dataset.detail = targetDetail;
+    const first = r.items.find((x) => x.id === State.a2a.sel) || r.items[0];
+    if (first) showA2A(first.id, targetList, targetDetail);
+    else $(targetDetail).innerHTML = `<div class="empty">${A2A_EMPTY}</div>`;
+  } catch (e) { $(targetList).innerHTML = errorView(e); }
+}
+
+async function showA2A(id, targetList = "#a2aList", targetDetail = "#a2aDetail") {
+  State.a2a.sel = id;
+  $$(`${targetList} .a2a-item`).forEach((el) => el.classList.toggle("on", el.dataset.a2a === id));
+  $(targetDetail).innerHTML = loadingView("Yükleniyor…");
+  try {
+    const r = await Api.a2aItem(id);
+    $(targetDetail).innerHTML = a2aTranscript(r);
+    $$("[data-copy-yaml]", $(targetDetail)).forEach((b) => (b.onclick = () => copyText(State.a2aYaml[b.dataset.copyYaml] || "")));
+  } catch (e) { $(targetDetail).innerHTML = errorView(e); }
+}
+
+function bindA2A() {
+  document.addEventListener("click", (e) => {
+    const it = e.target.closest("[data-a2a]");
+    if (!it) return;
+    const list = it.parentElement;
+    showA2A(it.dataset.a2a, `#${list.id}`, list.dataset.detail || "#a2aDetail");
+  });
+  if ($("#a2aPeer")) $("#a2aPeer").onchange = (e) => { State.a2a.peer = e.target.value; loadA2A(); };
+  if ($("#a2aServer")) {
+    let t;
+    $("#a2aServer").oninput = (e) => { clearTimeout(t); t = setTimeout(() => { State.a2a.server = e.target.value.trim(); loadA2A(); }, 300); };
+  }
+  if ($("#a2aRefresh")) $("#a2aRefresh").onclick = () => loadA2A();
+}
+
 function bindEvents() {
   addEventListener("hashchange", route);
   $("#menuBtn").onclick = () => $("#sidebar").classList.toggle("open");
@@ -1730,6 +1838,7 @@ function bindEvents() {
   bindPalette();
   bindAgentPage();
   bindAudit();
+  bindA2A();
   $("#dashCollect").onclick = (e) => startRun("collect", e.target);
   $("#dashReanalyze").onclick = (e) => startRun("reanalyze", e.target);
 

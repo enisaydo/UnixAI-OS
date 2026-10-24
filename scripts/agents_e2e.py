@@ -201,6 +201,20 @@ def main():
               "düzeltme kaydı: uyum 95, check çalışıyor, gerçek uygulama için onay bekliyor")
         uconv = call(UX, f"/agent/conversations/{r['conversationId']}")
         check(uconv["trace"][1]["result"] and "rem-" in uconv["trace"][1]["result"], "UnixAI konuşma kaydında MorpheusAI ajanının cevabı saklandı")
+        print("\n[Ajanlar arası konuşma kaydı]")
+        ua = call(UX, "/a2a")["items"]
+        check(len(ua) == 1 and ua[0]["direction"] == "giden" and ua[0]["peer"] == "morpheusai" and ua[0]["server"] == "rhel-db01",
+              "UnixAI: giden konuşma ayrı kayıtta (karşı ajan, sunucu)")
+        udet = call(UX, f"/a2a/{ua[0]['id']}")
+        rem = (udet["remediations"] or [{}])[0]
+        check("hosts: \"{{ target_host }}\"" in (rem.get("playbook") or "") and rem.get("score") == 95 and rem.get("url", "").endswith(f"/#/remediations/{rem.get('id')}"),
+              "UnixAI: MorpheusAI'nin hazırladığı playbook YAML'ı, uyum skoru ve MorpheusAI bağlantısı kayıtta")
+        check(len(call(UX, "/a2a?server=rhel-db01")["items"]) == 1 and not call(UX, "/a2a?server=rhel-web01")["items"], "UnixAI: sunucuya göre filtreleme")
+        ma = call(MP, "/a2a")["items"]
+        check(len(ma) == 1 and ma[0]["direction"] == "gelen" and ma[0]["peer"] == "unixai-os" and ma[0]["server"] == "rhel-db01" and ma[0]["remediations"],
+              "MorpheusAI: gelen konuşma ayrı kayıtta (UnixAI ajanından, sunucu, playbook)")
+        call(UX, "/chat", {"messages": [{"role": "user", "content": "rhel-db01 nasıl?"}], "agent": False})
+        check(len(call(UX, "/a2a")["items"]) == 1, "kullanıcı sohbetleri ajanlar arası kayda karışmıyor")
         if os.environ.get("E2E_KEEP"):  # arayüzü incelemek için süreçleri açık tut
             print(f"Arayüzler: UnixAI http://127.0.0.1:{UX}  ·  MorpheusAI http://127.0.0.1:{MP}", flush=True)
             time.sleep(int(os.environ["E2E_KEEP"]))

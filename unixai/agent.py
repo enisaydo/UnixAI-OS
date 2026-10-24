@@ -18,7 +18,7 @@ import threading
 import time
 import uuid
 
-from . import genai, mcp_hub, prompts, tools, usage
+from . import a2a, genai, mcp_hub, prompts, tools, usage
 from .errors import ApiError
 from .store import file, iso_now, read_json, write_json
 
@@ -144,9 +144,28 @@ def _exec(name: str, args: dict, ts: dict, ctx: dict, conv_id: str, hop: int):
         raise ApiError(f"Bilinmeyen araç: {name}")
     if t["kind"] == "local":
         return tools.call(name, args, ctx), "local"
-    if t["agent"]:
-        args = {**args, "context": {"conversation_id": conv_id, "hop": hop + 1, "from": AGENT_NAME}}
-    return mcp_hub.call_remote(t["conn"], t["tool"], args), t["conn"]["name"]
+    if not t["agent"]:
+        return mcp_hub.call_remote(t["conn"], t["tool"], args), t["conn"]["name"]
+    # Ajanlar arası: karşı ajana soru — ayrı konuşma kaydına yazılır
+    args = {**args, "context": {"conversation_id": conv_id, "hop": hop + 1, "from": AGENT_NAME}}
+    peer, q = t["conn"]["name"], args.get("question")
+    server = a2a.detect_server(q, explicit=args.get("server") or ctx.get("contextServer"))
+    if server and "server" not in args and "server" in (t.get("schema") or {}).get("properties", {}):
+        args["server"] = server
+    base = re.sub(r"/mcp/?$", "", t["conn"]["url"])
+    t0 = time.monotonic()
+    try:
+        res = mcp_hub.call_remote(t["conn"], t["tool"], args)
+    except Exception as e:
+        a2a.record("giden", peer, q, server=server, conversation_id=conv_id, ok=False, error=e,
+                   duration_ms=int((time.monotonic() - t0) * 1000), user=ctx.get("user"))
+        raise
+    d = res if isinstance(res, dict) else {"answer": str(res)}
+    rems = [{**x, "url": f"{base}/#/remediations/{x.get('id')}"} for x in d.get("remediations") or [] if isinstance(x, dict)]
+    a2a.record("giden", peer, q, d.get("answer"), server=server or next((x.get("server") for x in rems if x.get("server")), None),
+               conversation_id=conv_id, remote_conversation_id=d.get("conversationId"), remediations=rems, tools=d.get("tools_used"),
+               duration_ms=int((time.monotonic() - t0) * 1000), user=ctx.get("user"))
+    return res, peer
 
 
 def _short(v, n=MAX_RESULT) -> str:
@@ -165,6 +184,8 @@ def run(messages: list, context=None, ctx=None, hop: int = 0, conversation_id=No
     history = [m for m in messages if isinstance(m, dict) and m.get("role") in ("user", "assistant") and isinstance(m.get("content"), str)][-16:]
     question = next((m["content"] for m in reversed(history) if m["role"] == "user"), "")
     conv["question"] = question
+    if context and context.get("server"):
+        ctx["contextServer"] = context["server"]
     ts = _toolset(ctx, hop, s)
     mode = s["mode"] if s["mode"] != "auto" else (s.get("detected") or "native")
 
