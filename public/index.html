@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>UnixAI OS</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700&family=Red+Hat+Text:wght@400;500;700&family=Red+Hat+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- ============ MASTHEAD ============ -->
+  <header class="masthead">
+    <button class="icon-btn burger" id="menuBtn" aria-label="Menü">☰</button>
+    <a class="brand" href="#/dashboard">
+      <img src="favicon.svg" alt="" width="26" height="26" />
+      <span><b>UnixAI</b> OS</span>
+      <small>RHEL Agentless Log &amp; Anomali Analizi</small>
+    </a>
+    <div class="masthead-right">
+      <a class="chip link-chip" id="runChip" href="#/runs" title="Çalıştırma durumu"><span>Toplama: —</span></a>
+      <a class="chip link-chip" id="tokenChip" href="#/usage" title="Bugünkü token kullanımı"><span>Token: —</span></a>
+      <button class="chip link-chip" id="userChip" title="Kullanıcı"><span>Kullanıcı</span></button>
+      <a class="chip link-chip" id="aiChip" href="#/settings" title="GenAI bağlantısı"><i></i><span>AI</span></a>
+    </div>
+  </header>
+
+  <div class="layout">
+    <!-- ============ SIDEBAR ============ -->
+    <nav class="sidebar" id="sidebar">
+      <a href="#/dashboard" data-route="dashboard">Genel Bakış</a>
+      <div class="nav-group">Analiz</div>
+      <a href="#/runs" data-route="runs">Toplama &amp; Analiz</a>
+      <a href="#/collected" data-route="collected">Gelen Loglar</a>
+      <a href="#/ask" data-route="ask">UnixAI'ye Sor</a>
+      <div class="nav-group">Yönetim</div>
+      <a href="#/servers" data-route="servers">Sunucular</a>
+      <a href="#/usage" data-route="usage">Token Kullanımı</a>
+      <a href="#/logs" data-route="logs">AI Logları</a>
+      <a href="#/settings" data-route="settings">Ayarlar</a>
+    </nav>
+
+    <main class="page">
+      <div class="alert warn-banner hidden" id="authBanner">Giriş kapalı: <code>.env</code>'de <code>ADMIN_PASSWORD</code> veya <code>LDAP_SERVER</code> tanımlayın. UnixAI root SSH anahtarı kullanır; arayüz herkese açık kalmamalı.</div>
+
+      <!-- ---------- DASHBOARD ---------- -->
+      <section class="view" data-view="dashboard">
+        <div class="page-head">
+          <div><h1>Genel Bakış</h1><p>Sunucuların son toplama sonuçları, sağlık skorları ve öncelikli aksiyonlar.</p></div>
+          <div class="toolbar">
+            <span class="label" id="modeLabel"></span>
+            <button class="btn secondary" id="dashReanalyze">Yeniden analiz et</button>
+            <button class="btn primary" id="dashCollect">Şimdi topla ve analiz et</button>
+          </div>
+        </div>
+        <div class="kpis" id="kpis"></div>
+        <div class="card" id="fleetCard"></div>
+        <div class="card">
+          <div class="card-head"><h3>Sunucular</h3><input id="srvFilter" class="input sm" placeholder="Filtrele…" /></div>
+          <div class="table-wrap"><table class="table" id="srvTable"></table></div>
+        </div>
+      </section>
+
+      <!-- ---------- SERVER DETAIL ---------- -->
+      <section class="view" data-view="server">
+        <div class="page-head">
+          <div><h1 id="sdName">Sunucu</h1><p id="sdSub"></p></div>
+          <div class="toolbar">
+            <select id="sdRun" class="input sm" title="Toplama"></select>
+            <a class="btn secondary" id="sdAsk" href="#/ask">UnixAI'ye sor</a>
+            <button class="btn primary" id="sdCollect">Bu sunucuyu topla</button>
+          </div>
+        </div>
+        <div id="sdBody"></div>
+      </section>
+
+      <!-- ---------- RUNS ---------- -->
+      <section class="view" data-view="runs">
+        <div class="page-head">
+          <div><h1>Toplama &amp; Analiz</h1><p>SSH ile (agentless) log ve metrik toplama, kural motoru ve GenAI analizi. Her gün otomatik çalışır.</p></div>
+        </div>
+        <div class="card">
+          <div class="run-actions">
+            <div class="run-action">
+              <h4>Topla ve analiz et</h4>
+              <p class="muted sm">Seçili sunuculara SSH ile bağlanır, salt-okunur komutları çalıştırır, sonucu analiz eder. Hedefe hiçbir şey kurulmaz.</p>
+              <div class="chips" id="runServers"></div>
+              <div class="toolbar">
+                <label class="muted sm"><input type="checkbox" id="runAi" checked /> GenAI analizi</label>
+                <button class="btn primary" id="runCollect">Başlat</button>
+              </div>
+            </div>
+            <div class="run-action">
+              <h4>Sadece yeniden analiz et</h4>
+              <p class="muted sm">SSH'a gitmeden, sunucuların son ham verisini yeniden analiz eder (ör. GenAI bağlantısını yeni girdiyseniz).</p>
+              <div class="toolbar"><button class="btn secondary" id="runReanalyze">Yeniden analiz et</button></div>
+            </div>
+            <div class="run-action">
+              <h4>Demo veri</h4>
+              <p class="muted sm">SSH erişimi olmadan denemek için 4 örnek RHEL sunucusunun son 7 gününü üretir.</p>
+              <div class="toolbar"><button class="btn secondary" id="runDemo">Demo veri üret ve analiz et</button></div>
+            </div>
+          </div>
+          <div id="runActive"></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>Çalıştırmalar</h3><span class="muted sm" id="schedInfo"></span></div>
+          <div class="table-wrap"><table class="table" id="runTable"></table></div>
+        </div>
+      </section>
+
+      <!-- ---------- COLLECTED ---------- -->
+      <section class="view" data-view="collected">
+        <div class="page-head">
+          <div><h1>Gelen Loglar</h1><p>Her sunucunun son toplamasında hangi log/metrik bölümü geldi (satır sayısı). Hücreye tıklayıp ham çıktıyı görün.</p></div>
+          <button class="btn secondary" id="colRefresh">Yenile</button>
+        </div>
+        <div class="card"><div class="table-wrap"><table class="table matrix" id="colTable"></table></div></div>
+      </section>
+
+      <!-- ---------- ASK ---------- -->
+      <section class="view" data-view="ask">
+        <div class="page-head">
+          <div><h1>UnixAI'ye Sor</h1><p>Bir sunucu veya filo bağlamı seçin; UnixAI son toplanan veriye göre cevaplasın.</p></div>
+        </div>
+        <div class="card chat">
+          <div class="chat-log" id="chatLog"></div>
+          <div class="chat-suggest" id="chatSuggest"></div>
+          <form class="chat-input" id="chatForm">
+            <div class="toolbar">
+              <label class="muted sm" for="chatCtx">Bağlam</label>
+              <select id="chatCtx" class="input sm"></select>
+              <button type="button" class="btn link sm" id="chatClear">Sohbeti temizle</button>
+            </div>
+            <div class="chat-row">
+              <textarea id="chatText" rows="2" placeholder="Sorunuzu yazın… (Enter gönderir, Shift+Enter yeni satır)"></textarea>
+              <button class="btn primary" type="submit" id="chatSend">Gönder</button>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      <!-- ---------- SERVERS ---------- -->
+      <section class="view" data-view="servers">
+        <div class="page-head">
+          <div><h1>Sunucular</h1><p>Agentless toplama yapılacak RHEL sunucuları. Boş alanlar Ayarlar → SSH varsayılanlarını kullanır.</p></div>
+          <div class="toolbar">
+            <button class="btn secondary" id="invImport">Toplu ekle</button>
+            <button class="btn primary" id="invAdd">Sunucu ekle</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="table-wrap"><table class="table" id="invTable"></table></div>
+        </div>
+        <div class="card narrow">
+          <div class="card-head"><h3>SSH anahtarı</h3><span class="muted sm" id="keyInfo"></span></div>
+          <div id="keyBody"></div>
+        </div>
+      </section>
+
+      <!-- ---------- USAGE ---------- -->
+      <section class="view" data-view="usage">
+        <div class="page-head">
+          <div><h1>Token Kullanımı</h1><p>Hangi analiz / soru ne kadar token kullandı, kim kullandı. Günlük limitler Ayarlar'dan belirlenir.</p></div>
+          <button class="btn secondary" id="usageCsv">CSV indir</button>
+        </div>
+        <div class="card">
+          <div class="toolbar">
+            <div class="seg" id="usageRange">
+              <button data-days="1">Bugün</button>
+              <button data-days="7" class="on">7 gün</button>
+              <button data-days="30">30 gün</button>
+            </div>
+            <label class="muted sm">Başlangıç <input type="date" id="usageFrom" class="input sm" /></label>
+            <label class="muted sm">Bitiş <input type="date" id="usageTo" class="input sm" /></label>
+            <select id="usageUser" class="input sm"><option value="">Tüm kullanıcılar</option></select>
+            <select id="usageKind" class="input sm">
+              <option value="">Tüm türler</option>
+              <option value="server-analysis">Sunucu analizi</option>
+              <option value="fleet-summary">Filo özeti</option>
+              <option value="chat">Sohbet</option>
+              <option value="test">Bağlantı testi</option>
+            </select>
+          </div>
+          <div class="kpis" id="usageKpis"></div>
+        </div>
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-head"><h3>Günlük token kullanımı</h3><span class="muted sm" id="usageTz"></span></div>
+            <div class="chart" id="usageChart"></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h3>Kullanıcıya göre</h3></div>
+            <div id="usageByUser"></div>
+            <div class="card-head mt"><h3>Türe göre</h3></div>
+            <div class="table-wrap"><table class="table" id="usageByKind"></table></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>Sorgular</h3><span class="muted sm" id="usageCount"></span></div>
+          <div class="table-wrap"><table class="table" id="usageTable"></table></div>
+        </div>
+      </section>
+
+      <!-- ---------- LOGS ---------- -->
+      <section class="view" data-view="logs">
+        <div class="page-head">
+          <div><h1>AI Logları</h1><p>Token servisine ve GPT'ye giden her istek ile dönen cevap. Gizli alanlar maskelenir.</p></div>
+        </div>
+        <div class="card">
+          <div class="toolbar">
+            <button class="btn secondary" id="logRefresh">Yenile</button>
+            <label class="muted sm"><input type="checkbox" id="logAuto" /> 5 sn'de bir yenile</label>
+          </div>
+          <div class="table-wrap"><table class="table" id="logTable"></table></div>
+        </div>
+      </section>
+
+      <!-- ---------- SETTINGS ---------- -->
+      <section class="view" data-view="settings">
+        <div class="page-head">
+          <div><h1>Ayarlar</h1><p>GenAI bağlantısı, SSH, zamanlama ve eşikler sunucuda saklanır; servis yeniden başlatmaya gerek yoktur.</p></div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h3>GenAI bağlantısı</h3>
+            <span class="muted sm" id="connInfo"></span>
+          </div>
+          <div class="flow">
+            <div class="flow-step" id="flowTms"><b>1</b><span>Token servisi (TMS)</span><small class="mono" id="flowTmsHost">—</small></div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-step"><b>2</b><span>Authorization: Bearer &lt;token&gt;</span><small>sunucuda cache'lenir</small></div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-step" id="flowChat"><b>3</b><span>chat/completions (GPT)</span><small class="mono" id="flowChatHost">—</small></div>
+          </div>
+          <form id="connForm" class="form">
+            <div class="grid-2">
+              <fieldset class="fs">
+                <legend>1) Token servisi</legend>
+                <label>Token URL
+                  <input class="input mono" name="tms.url" placeholder="https://tms.kurum.local/oauth/token" />
+                </label>
+                <label>Metot
+                  <select class="input" name="tms.method"><option>POST</option><option>GET</option></select>
+                </label>
+                <label>Gövde (body)
+                  <textarea class="input mono" name="tms.body" rows="7" spellcheck="false" placeholder='{"client_id":"…","client_secret":"…","grant_type":"password","username":"…","password":"…"}'></textarea>
+                  <small>JSON veya <code>a=b&amp;c=d</code>. Gizli alanlar kayıttan sonra <code>••••••••</code> görünür; değiştirmezseniz eski değer korunur.</small>
+                </label>
+                <div class="hdr-editor" data-headers="tms"></div>
+                <details class="adv">
+                  <summary>Gelişmiş</summary>
+                  <div class="grid-2">
+                    <label>Token alanı (JSON yolu)<input class="input mono" name="tms.tokenPath" placeholder="otomatik: access_token, data.token…" /></label>
+                    <label>Token header'ı<input class="input mono" name="tms.tokenHeader" placeholder="authorization" /></label>
+                    <label>Süre alanı (JSON yolu)<input class="input mono" name="tms.expiresPath" placeholder="otomatik: expires_in" /></label>
+                    <label>Varsayılan süre (sn)<input class="input" name="tms.ttl" type="number" min="10" /></label>
+                    <label>Basic auth kullanıcı<input class="input" name="tms.basicUser" autocomplete="off" /></label>
+                    <label>Basic auth parola<input class="input" name="tms.basicPass" type="password" autocomplete="new-password" /></label>
+                  </div>
+                </details>
+              </fieldset>
+              <fieldset class="fs">
+                <legend>2) Chat/completions (GPT)</legend>
+                <label>Chat URL
+                  <input class="input mono" name="chat.url" placeholder="https://genai.kurum.local/v1/chat/completions" />
+                </label>
+                <div class="grid-2">
+                  <label>Model alanı<input class="input mono" name="chat.modelField" placeholder="model" /><small>Gateway'e göre <code>model</code> veya <code>model_name</code></small></label>
+                  <label>Model<input class="input mono" name="chat.model" placeholder="gpt-5.5" /></label>
+                </div>
+                <label>Ek gövde (JSON)
+                  <input class="input mono" name="chat.bodyExtra" placeholder='{"max_completion_tokens":16000}' />
+                  <small>gpt-5.x düşünme + cevap için toplam bütçe; düşükse cevap boş gelir.</small>
+                </label>
+                <div class="hdr-editor" data-headers="chat"></div>
+                <details class="adv">
+                  <summary>Gelişmiş</summary>
+                  <div class="grid-2">
+                    <label>Yetki header'ı<input class="input mono" name="chat.authHeader" placeholder="Authorization" /></label>
+                    <label>Önek<input class="input mono" name="chat.authPrefix" placeholder="Bearer" /></label>
+                    <label>Cevap alanı (JSON yolu)<input class="input mono" name="chat.replyPath" placeholder="choices.0.message.content" /></label>
+                  </div>
+                </details>
+              </fieldset>
+            </div>
+            <div class="toolbar">
+              <label class="check"><input type="checkbox" name="insecureTls" /> Sertifika doğrulamasını kapat (self-signed)</label>
+              <label class="muted sm inline">Zaman aşımı (ms) <input class="input sm" name="timeoutMs" type="number" min="5000" max="600000" step="1000" /></label>
+            </div>
+            <small class="muted">Yer tutucular: <code>{{uuid}}</code> her istekte yeni UUID · <code>{{timestamp}}</code> · <code>{{env:İSİM}}</code> sırrı <code>.env</code>'de tutar · chat header'larında <code>{{token}}</code>.</small>
+            <div class="toolbar">
+              <button class="btn primary" type="submit">Kaydet</button>
+              <button class="btn secondary" type="button" id="connTestToken">Kaydet + token al</button>
+              <button class="btn secondary" type="button" id="connTestChat">Kaydet + GPT'ye test mesajı</button>
+            </div>
+            <div id="connResult"></div>
+          </form>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-head"><h3>SSH (agentless toplama)</h3></div>
+            <form id="sshForm" class="form">
+              <div class="grid-2">
+                <label>Kullanıcı<input class="input" name="ssh.user" /><small>Varsayılan root</small></label>
+                <label>Port<input class="input" name="ssh.port" type="number" min="1" max="65535" /></label>
+              </div>
+              <label>Anahtar dosyası<input class="input mono" name="ssh.keyFile" /></label>
+              <label>Host key politikası
+                <select class="input" name="ssh.hostKeyPolicy">
+                  <option value="yes">known_hosts'ta olmalı (önerilir)</option>
+                  <option value="accept-new">İlk bağlantıda kaydet (accept-new)</option>
+                </select>
+              </label>
+              <div class="grid-3">
+                <label>Bağlantı z.a. (sn)<input class="input" name="ssh.connectTimeout" type="number" /></label>
+                <label>Komut z.a. (sn)<input class="input" name="ssh.commandTimeout" type="number" /></label>
+                <label>Eş zamanlı<input class="input" name="ssh.concurrency" type="number" /></label>
+              </div>
+              <div class="card-head mt"><h3>Zamanlama ve analiz</h3></div>
+              <div class="grid-2">
+                <label class="check"><input type="checkbox" name="schedule.enabled" /> Her gün otomatik topla</label>
+                <label>Saat<input class="input" name="schedule.time" type="time" /></label>
+              </div>
+              <label class="check"><input type="checkbox" name="analysis.ai" /> GenAI ile analiz et (kapalıysa yalnızca kural motoru)</label>
+              <label class="check"><input type="checkbox" name="analysis.fleetSummary" /> Filo özeti üret</label>
+              <label class="check"><input type="checkbox" name="analysis.redactIps" /> GenAI'a gönderirken IP adreslerini maskele (10.20.x.x)</label>
+              <label>Saklama süresi (gün)<input class="input" name="analysis.retentionDays" type="number" min="7" /></label>
+              <div class="toolbar"><button class="btn primary" type="submit">Kaydet</button><span class="muted sm" id="sshMsg"></span></div>
+            </form>
+          </div>
+          <div class="card">
+            <div class="card-head"><h3>Kural motoru eşikleri</h3></div>
+            <form id="thrForm" class="form"><div class="grid-2" id="thrFields"></div>
+              <div class="toolbar"><button class="btn primary" type="submit">Kaydet</button><button class="btn link" type="button" id="thrReset">Varsayılana dön</button></div>
+            </form>
+          </div>
+        </div>
+
+        <div class="card narrow">
+          <div class="card-head"><h3>Token limitleri</h3><span class="muted sm" id="limitInfo"></span></div>
+          <form id="limitForm" class="form">
+            <div class="grid-2">
+              <label>Günlük toplam limit (token)
+                <input class="input" name="dailyLimit" type="number" min="0" step="1000" placeholder="ör. 500000" />
+                <small>Bir günde harcanabilecek toplam token. 0 = sınırsız.</small>
+              </label>
+              <label>Kullanıcı başına günlük limit (token)
+                <input class="input" name="perUserDailyLimit" type="number" min="0" step="1000" placeholder="0" />
+                <small>Her kullanıcı için ayrı sınır (zamanlayıcı da bir kullanıcıdır). 0 = sınırsız.</small>
+              </label>
+            </div>
+            <small class="muted">Limit dolunca yeni AI istekleri reddedilir ve sunucular kural motoruyla analiz edilir; limit her gün 00:00'da sıfırlanır.</small>
+            <div class="toolbar"><button class="btn primary" type="submit">Kaydet</button></div>
+          </form>
+        </div>
+        <div class="card narrow">
+          <div class="card-head">
+            <h3>Sistem mesajı <span class="muted sm">(role: "system")</span></h3>
+            <span class="muted sm" id="promptInfo"></span>
+          </div>
+          <form id="promptForm" class="form">
+            <label>UnixAI'nın kimliği ve kuralları
+              <textarea class="input mono" name="system" rows="12" spellcheck="false"></textarea>
+              <small>Her analiz ve sohbet isteğinde <code>messages[0] = { role: "system", content: … }</code> olarak gönderilir.</small>
+            </label>
+            <div class="toolbar">
+              <button class="btn primary" type="submit">Kaydet</button>
+              <button class="btn link" type="button" id="promptReset">Varsayılana dön</button>
+            </div>
+          </form>
+        </div>
+        <div class="card narrow" id="uiCard">
+          <div class="card-head"><h3>Arayüz</h3></div>
+          <form id="settingsForm" class="form">
+            <label>Kullanıcı adınız
+              <input class="input" name="userName" placeholder="ör. EnisA" maxlength="80" />
+              <small>Token raporlarında "kim kullandı" bilgisi olarak görünür (giriş kapalıyken).</small>
+            </label>
+            <div class="toolbar"><button class="btn primary" type="submit">Kaydet</button><span class="muted sm" id="settingsMsg"></span></div>
+          </form>
+        </div>
+        <div class="card narrow">
+          <div class="card-head"><h3>API sözleşmesi</h3></div>
+          <pre class="contract" id="contract"></pre>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- ============ GİRİŞ ============ -->
+  <div class="login-screen hidden" id="loginScreen">
+    <div class="login-box">
+      <div class="login-brand"><img src="favicon.svg" alt="" width="36" height="36" /><span><b>UnixAI</b> OS</span></div>
+      <h1>Giriş yapın</h1>
+      <p class="muted" id="loginHint">Kurumsal (LDAP / Active Directory) kullanıcı adı ve parolanızı kullanın.</p>
+      <form id="loginForm" class="form" autocomplete="on">
+        <label>Kullanıcı adı
+          <input class="input" name="username" autocomplete="username" required />
+        </label>
+        <label>Parola
+          <input class="input" name="password" type="password" autocomplete="current-password" required />
+        </label>
+        <div class="alert danger hidden" id="loginError"></div>
+        <button class="btn primary block" type="submit" id="loginBtn">Giriş yap</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal hidden" id="modal">
+    <div class="modal-box">
+      <div class="card-head"><h3 id="modalTitle"></h3><button class="icon-btn" id="modalClose" aria-label="Kapat">✕</button></div>
+      <div id="modalBody"></div>
+    </div>
+  </div>
+  <div class="toast" id="toast"></div>
+
+  <script src="js/api.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

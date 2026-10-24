@@ -1,0 +1,23 @@
+# UnixAI OS - systemd servisi (root ile çalışır; root SSH anahtarıyla hedeflere bağlanır)
+# deploy/install.sh tarafından __APP__ / __PYTHON__ doldurularak /etc/systemd/system/unixai-os.service olarak kurulur.
+[Unit]
+Description=UnixAI OS - RHEL agentless log toplama ve GenAI analizi
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=__APP__
+ExecStart=__PYTHON__ __APP__/server.py
+Environment=PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+Restart=on-failure
+RestartSec=5
+# Sertleştirme: uygulama yalnızca data/ ve logs/ dizinlerine yazar, SSH için /root/.ssh/known_hosts
+ProtectSystem=strict
+ReadWritePaths=__APP__/data __APP__/logs /root/.ssh
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

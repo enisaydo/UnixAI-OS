@@ -1,0 +1,12 @@
+.git
+.github
+__pycache__
+deploy
+scripts
+*.md
+.env
+.env.*
+Dockerfile
+docker-compose.yml
+logs
+data
