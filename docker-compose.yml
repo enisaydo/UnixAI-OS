@@ -16,5 +16,5 @@ services:
     volumes:
       - ./data:/app/data:Z
       - ./logs:/app/logs:Z
-      # root SSH anahtarı (unixai_ed25519) ve known_hosts
+      # root SSH anahtarı (id_rsa) ve known_hosts
       - /root/.ssh:/root/.ssh:z

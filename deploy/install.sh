@@ -37,8 +37,9 @@ chmod 700 "$APP/data" "$APP/logs"
 
 echo "==> root SSH anahtarı (hedeflerde /root/.ssh/authorized_keys'e eklenecek)"
 install -d -m 700 /root/.ssh
-[[ -f /root/.ssh/unixai_ed25519 ]] || ssh-keygen -q -t ed25519 -N "" -f /root/.ssh/unixai_ed25519 -C "root@$(hostname -s) unixai-os"
-chmod 600 /root/.ssh/unixai_ed25519
+# root'un mevcut anahtarı kullanılır; yoksa standart id_rsa üretilir
+[[ -f /root/.ssh/id_rsa ]] || ssh-keygen -q -t rsa -b 4096 -N "" -f /root/.ssh/id_rsa
+chmod 600 /root/.ssh/id_rsa
 touch /root/.ssh/known_hosts && chmod 644 /root/.ssh/known_hosts
 
 echo "==> $APP/.env"
@@ -80,7 +81,7 @@ cat <<EOF
      chat/completions URL'i + model → "Kaydet + GPT'ye test mesajı"
   2) Sunucular → Sunucu ekle / Toplu ekle
   3) Sunucular → SSH anahtarı: gösterilen komutla her hedefte public key'i yetkilendirin
-       bash target-setup.sh "\$(cat /root/.ssh/unixai_ed25519.pub)" <merkez_ip>
+       bash target-setup.sh "\$(cat /root/.ssh/id_rsa.pub)" <merkez_ip>
      ve merkezde:  ssh-keyscan -H <hedef> >> /root/.ssh/known_hosts
   4) Toplama & Analiz → Başlat   (veya "Demo veri üret" ile hemen deneyin)
  Günlük otomatik toplama: Ayarlar → Zamanlama (varsayılan 06:30)

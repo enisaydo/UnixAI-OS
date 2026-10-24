@@ -79,7 +79,7 @@ Kurulum ve mimari: [`mcp/README.md`](mcp/README.md) · Arayüz: **Ajan & MCP**
 1. **Sunucular → Sunucu ekle / Toplu ekle** (`ad adres [kullanıcı] [port]` satırları).
 2. **Sunucular → SSH anahtarı** kartındaki komutla her hedefte public key'i yetkilendirin:
    ```bash
-   bash target-setup.sh "$(cat /root/.ssh/unixai_ed25519.pub)" <merkez_ip>   # from= kısıtlı, no-pty
+   bash target-setup.sh "$(cat /root/.ssh/id_rsa.pub)" <merkez_ip>   # from= kısıtlı, no-pty
    ssh-keyscan -H <hedef> >> /root/.ssh/known_hosts                           # merkezde
    ```
 3. Satırdaki **SSH testi** ile doğrulayın. Hatalar yol gösteren mesaja çevrilir (host key, Permission denied, DNS…).

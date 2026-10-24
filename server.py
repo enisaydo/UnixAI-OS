@@ -77,7 +77,7 @@ def ssh_key_info() -> dict:
         pub = None
     return {
         "keyFile": s["keyFile"], "user": s["user"], "exists": Path(s["keyFile"]).exists(), "publicKey": pub,
-        "generate": f'ssh-keygen -t ed25519 -N "" -f {s["keyFile"]} -C "root@$(hostname -s) unixai-os"',
+        "generate": f'ssh-keygen -t rsa -b 4096 -N "" -f {s["keyFile"]}',
         "targetSetup": f'bash target-setup.sh "{pub}" <merkez_sunucu_ip>' if pub else None,
     }
 

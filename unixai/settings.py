@@ -20,7 +20,7 @@ FILE = "settings.json"
 DEFAULTS = {
     "ssh": {
         "user": os.environ.get("SSH_USER", "root"),
-        "keyFile": os.environ.get("SSH_KEY_FILE", "/root/.ssh/unixai_ed25519"),
+        "keyFile": os.environ.get("SSH_KEY_FILE", "/root/.ssh/id_rsa"),
         "port": 22,
         "hostKeyPolicy": "yes",  # yes: known_hosts'ta olmalı · accept-new: ilk bağlantıda kaydet
         "connectTimeout": 15,
@@ -65,7 +65,7 @@ def save(data: dict, user=None) -> dict:
     if not re.match(r"^[a-z_][a-z0-9_.-]{0,31}$", str(ssh["user"])):
         raise ApiError("Geçersiz SSH kullanıcı adı")
     if not re.match(r"^/[^\0\n\r]+$", str(ssh["keyFile"])):
-        raise ApiError("SSH anahtar dosyası mutlak yol olmalı (ör. /root/.ssh/unixai_ed25519)")
+        raise ApiError("SSH anahtar dosyası mutlak yol olmalı (ör. /root/.ssh/id_rsa)")
     if ssh["hostKeyPolicy"] not in ("yes", "accept-new"):
         raise ApiError("Geçersiz host key politikası")
     ssh["port"] = int(_num(ssh["port"], "SSH portu", 1, 65535))

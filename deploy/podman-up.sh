@@ -2,7 +2,7 @@
 # UnixAI OS'u Podman ile (root) build edip ayağa kaldırır / günceller.
 # Kullanım:  sudo ./deploy/podman-up.sh            → sadece container (podman run)
 #            sudo ./deploy/podman-up.sh --systemd  → systemd servisi olarak (açılışta otomatik başlar)
-# Host'taki /root/.ssh (unixai_ed25519 + known_hosts) container'a bağlanır.
+# Host'taki /root/.ssh (id_rsa + known_hosts) container'a bağlanır.
 set -euo pipefail
 
 export no_proxy="localhost,127.0.0.1,::1${no_proxy:+,$no_proxy}"
@@ -26,7 +26,8 @@ chmod 600 .env
 mkdir -p logs data
 
 install -d -m 700 /root/.ssh
-[[ -f /root/.ssh/unixai_ed25519 ]] || ssh-keygen -q -t ed25519 -N "" -f /root/.ssh/unixai_ed25519 -C "root@$(hostname -s) unixai-os"
+# root'un mevcut anahtarı kullanılır; yoksa standart id_rsa üretilir
+[[ -f /root/.ssh/id_rsa ]] || ssh-keygen -q -t rsa -b 4096 -N "" -f /root/.ssh/id_rsa
 touch /root/.ssh/known_hosts
 
 PORT="${HOST_PORT:-$(grep -E '^HOST_PORT=' .env | tail -n1 | cut -d= -f2 | tr -d '[:space:]"'"'" || true)}"
