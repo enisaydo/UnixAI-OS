@@ -8,6 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;600;700&family=Red+Hat+Text:wght@400;500;600;700&family=Red+Hat+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="universe.css" />
   <script src="js/theme.js"></script>
 </head>
 <body>
@@ -172,7 +173,7 @@
       </section>
 
       <!-- ---------- AJANLAR ARASI (MorpheusAI) ---------- -->
-      <section class="view" data-view="a2a">
+      <section class="view universe" data-view="a2a">
         <div class="page-head">
           <div><h1>MorpheusAI</h1><p>Yalnızca <b>UnixAI</b> ile <b>MorpheusAI ajanı</b> arasındaki konuşmalar. Kullanıcı sohbetlerinden ayrı tutulur; MorpheusAI'nin hazırladığı playbook'lar YAML olarak burada görünür.</p></div>
           <div class="toolbar">
@@ -181,8 +182,7 @@
             <button class="btn" id="a2aRefresh"><svg class="i" data-icon="refresh"></svg>Yenile</button>
           </div>
         </div>
-        <div class="a2a-flow"><span class="a2a-node">UnixAI ajanı</span><span class="a2a-wire">⇄ MCP (/mcp, Bearer token) ⇄</span><span class="a2a-node peer">MorpheusAI ajanı</span>
-          <span class="muted sm">Konuşmayı bir kullanıcı (Ajan ekranı) veya karşı ajan başlatır; her soru-cevap burada kaydedilir.</span></div>
+        <div class="uv-stage" id="uvStage" data-self="unixai"></div>
         <div class="a2a-layout">
           <div class="card a2a-list" id="a2aList"></div>
           <div class="card a2a-detail" id="a2aDetail"></div>
@@ -634,6 +634,7 @@
 
   <script src="js/api.js"></script>
   <script src="js/ui.js"></script>
+  <script src="js/universe.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

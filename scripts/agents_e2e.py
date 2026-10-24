@@ -148,7 +148,10 @@ class FakeAAP(BaseHTTPRequestHandler):
             seen["templates"].append(t)
             return self.j(201, t)
         if re.match(r"^/api/v2/job_templates/\d+/credentials/$", path):
-            return self.j(204, {})
+            self.send_response(204)
+            self.send_header("content-length", "0")
+            self.end_headers()
+            return None
         b["template"] = path.split("/")[4]
         seen["aap"].append(b)
         return self.j(201, {"job": 900 + len(seen["aap"]), "status": "pending", "ignored_fields": {}})

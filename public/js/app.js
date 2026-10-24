@@ -1936,6 +1936,10 @@ async function loadA2A(targetList = "#a2aList", targetDetail = "#a2aDetail", ser
       ps.value = r.peers.includes(cur) ? cur : "";
     }
     $(targetList).innerHTML = a2aList(r.items);
+    if (targetList === "#a2aList" && window.Universe && $("#uvStage")) {
+      Universe.mount($("#uvStage"), { self: $("#uvStage").dataset.self });
+      Universe.setStats(r.items);
+    }
     $(targetList).dataset.detail = targetDetail;
     const first = r.items.find((x) => x.id === State.a2a.sel) || r.items[0];
     if (first) showA2A(first.id, targetList, targetDetail);
@@ -1952,6 +1956,7 @@ async function showA2A(id, targetList = "#a2aList", targetDetail = "#a2aDetail")
     $(targetDetail).innerHTML = a2aTranscript(r);
     hydrateRem($(targetDetail));
     $$("[data-copy-yaml]", $(targetDetail)).forEach((b) => (b.onclick = () => copyText(State.a2aYaml[b.dataset.copyYaml] || "")));
+    if (targetDetail === "#a2aDetail" && window.Universe) Universe.play(r, $(targetDetail));
   } catch (e) { $(targetDetail).innerHTML = errorView(e); }
 }
 
