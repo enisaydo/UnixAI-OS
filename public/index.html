@@ -6,123 +6,147 @@
   <title>UnixAI OS</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700&family=Red+Hat+Text:wght@400;500;700&family=Red+Hat+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;600;700&family=Red+Hat+Text:wght@400;500;600;700&family=Red+Hat+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
+  <script src="js/theme.js"></script>
 </head>
 <body>
-  <!-- ============ MASTHEAD ============ -->
+  <!-- ============ ÜST ÇUBUK ============ -->
   <header class="masthead">
-    <button class="icon-btn burger" id="menuBtn" aria-label="Menü">☰</button>
+    <button class="icon-btn burger" id="menuBtn" aria-label="Menü"><svg class="i" data-icon="menu"></svg></button>
     <a class="brand" href="#/dashboard">
-      <img src="favicon.svg" alt="" width="26" height="26" />
-      <span><b>UnixAI</b> OS</span>
-      <small>RHEL Agentless Log &amp; Anomali Analizi</small>
+      <span class="brand-mark"><img src="favicon.svg" alt="" /></span>
+      <span class="brand-text"><b>UnixAI <span>OS</span></b><small>RHEL agentless gözlem &amp; AI analiz</small></span>
     </a>
+    <button class="search-trigger" id="searchBtn" title="Sunucu veya ekran ara">
+      <svg class="i" data-icon="search"></svg><span>Sunucu, ekran veya işlem ara…</span><kbd>Ctrl K</kbd>
+    </button>
     <div class="masthead-right">
-      <a class="chip link-chip" id="runChip" href="#/runs" title="Çalıştırma durumu"><span>Toplama: —</span></a>
+      <a class="chip link-chip" id="runChip" href="#/runs" title="Toplama durumu"><span>Toplama: —</span></a>
       <a class="chip link-chip" id="tokenChip" href="#/usage" title="Bugünkü token kullanımı"><span>Token: —</span></a>
-      <button class="chip link-chip" id="userChip" title="Kullanıcı"><span>Kullanıcı</span></button>
       <a class="chip link-chip" id="aiChip" href="#/settings" title="GenAI bağlantısı"><i></i><span>AI</span></a>
+      <button class="icon-btn" id="themeBtn" title="Açık / koyu tema"><svg class="i" data-icon="theme"></svg></button>
+      <button class="chip link-chip" id="userChip" title="Kullanıcı"><svg class="i i-xs" data-icon="user"></svg><span>Kullanıcı</span></button>
     </div>
   </header>
 
   <div class="layout">
-    <!-- ============ SIDEBAR ============ -->
+    <!-- ============ MENÜ ============ -->
     <nav class="sidebar" id="sidebar">
-      <a href="#/dashboard" data-route="dashboard">Genel Bakış</a>
+      <a href="#/dashboard" data-route="dashboard"><svg class="i" data-icon="dashboard"></svg>Genel Bakış<span class="badge hidden" id="navCrit"></span></a>
       <div class="nav-group">Analiz</div>
-      <a href="#/runs" data-route="runs">Toplama &amp; Analiz</a>
-      <a href="#/collected" data-route="collected">Gelen Loglar</a>
-      <a href="#/ask" data-route="ask">UnixAI'ye Sor</a>
+      <a href="#/runs" data-route="runs"><svg class="i" data-icon="refresh"></svg>Toplama &amp; Analiz</a>
+      <a href="#/collected" data-route="collected"><svg class="i" data-icon="logs"></svg>Gelen Loglar</a>
+      <a href="#/ask" data-route="ask"><svg class="i" data-icon="chat"></svg>UnixAI'ye Sor</a>
       <div class="nav-group">Yönetim</div>
-      <a href="#/servers" data-route="servers">Sunucular</a>
-      <a href="#/usage" data-route="usage">Token Kullanımı</a>
-      <a href="#/logs" data-route="logs">AI Logları</a>
-      <a href="#/settings" data-route="settings">Ayarlar</a>
+      <a href="#/servers" data-route="servers"><svg class="i" data-icon="servers"></svg>Sunucular</a>
+      <a href="#/usage" data-route="usage"><svg class="i" data-icon="chart"></svg>Token Kullanımı</a>
+      <a href="#/logs" data-route="logs"><svg class="i" data-icon="file"></svg>AI Logları</a>
+      <a href="#/settings" data-route="settings"><svg class="i" data-icon="sliders"></svg>Ayarlar</a>
+      <div class="nav-foot" id="navFoot"></div>
     </nav>
 
     <main class="page">
-      <div class="alert warn-banner hidden" id="authBanner">Giriş kapalı: <code>.env</code>'de <code>ADMIN_PASSWORD</code> veya <code>LDAP_SERVER</code> tanımlayın. UnixAI root SSH anahtarı kullanır; arayüz herkese açık kalmamalı.</div>
+      <div class="alert warn-banner hidden" id="authBanner"><svg class="i" data-icon="shield"></svg><span>Giriş kapalı: <code>.env</code>'de <code>ADMIN_PASSWORD</code> veya <code>LDAP_SERVER</code> tanımlayın. UnixAI root SSH anahtarı kullanır; arayüz herkese açık kalmamalı.</span></div>
 
-      <!-- ---------- DASHBOARD ---------- -->
+      <!-- ---------- GENEL BAKIŞ ---------- -->
       <section class="view" data-view="dashboard">
         <div class="page-head">
-          <div><h1>Genel Bakış</h1><p>Sunucuların son toplama sonuçları, sağlık skorları ve öncelikli aksiyonlar.</p></div>
+          <div><h1>Genel Bakış</h1><p>Filonun sağlık durumu, bugün yapılması gerekenler ve sunucu bazında son analizler.</p></div>
           <div class="toolbar">
             <span class="label" id="modeLabel"></span>
-            <button class="btn secondary" id="dashReanalyze">Yeniden analiz et</button>
-            <button class="btn primary" id="dashCollect">Şimdi topla ve analiz et</button>
+            <button class="btn" id="dashReanalyze"><svg class="i" data-icon="sparkles"></svg>Yeniden analiz et</button>
+            <button class="btn primary" id="dashCollect"><svg class="i" data-icon="bolt"></svg>Şimdi topla ve analiz et</button>
           </div>
         </div>
-        <div class="kpis" id="kpis"></div>
-        <div class="card" id="fleetCard"></div>
+        <div id="hero"></div>
+        <div id="fleetCard"></div>
         <div class="card">
-          <div class="card-head"><h3>Sunucular</h3><input id="srvFilter" class="input sm" placeholder="Filtrele…" /></div>
-          <div class="table-wrap"><table class="table" id="srvTable"></table></div>
+          <div class="card-head">
+            <h3><svg class="i" data-icon="servers"></svg>Sunucular</h3>
+            <div class="fleet-tools">
+              <div class="seg" id="srvStatus"></div>
+              <input id="srvFilter" class="input sm" placeholder="Ad, adres veya etiket…" />
+              <div class="seg" id="srvView">
+                <button data-view="tiles" title="Kart görünümü"><svg class="i" data-icon="dashboard"></svg></button>
+                <button data-view="table" title="Tablo görünümü"><svg class="i" data-icon="list"></svg></button>
+              </div>
+            </div>
+          </div>
+          <div class="tiles" id="srvTiles"></div>
+          <div class="table-wrap hidden" id="srvTableWrap"><table class="table" id="srvTable"></table></div>
         </div>
       </section>
 
-      <!-- ---------- SERVER DETAIL ---------- -->
+      <!-- ---------- SUNUCU DETAYI ---------- -->
       <section class="view" data-view="server">
         <div class="page-head">
-          <div><h1 id="sdName">Sunucu</h1><p id="sdSub"></p></div>
+          <div>
+            <div class="crumbs"><a href="#/dashboard">Genel Bakış</a><span>/</span><span>Sunucu</span></div>
+            <div class="sd-head"><h1 id="sdName">Sunucu</h1><span id="sdStatus"></span></div>
+            <div class="facts" id="sdSub"></div>
+          </div>
           <div class="toolbar">
             <select id="sdRun" class="input sm" title="Toplama"></select>
-            <a class="btn secondary" id="sdAsk" href="#/ask">UnixAI'ye sor</a>
-            <button class="btn primary" id="sdCollect">Bu sunucuyu topla</button>
+            <a class="btn" id="sdAsk" href="#/ask"><svg class="i" data-icon="chat"></svg>UnixAI'ye sor</a>
+            <button class="btn primary" id="sdCollect"><svg class="i" data-icon="bolt"></svg>Bu sunucuyu topla</button>
           </div>
         </div>
+        <div class="vitals hidden" id="sdVitals"></div>
         <div id="sdBody"></div>
       </section>
 
-      <!-- ---------- RUNS ---------- -->
+      <!-- ---------- TOPLAMA & ANALİZ ---------- -->
       <section class="view" data-view="runs">
         <div class="page-head">
-          <div><h1>Toplama &amp; Analiz</h1><p>SSH ile (agentless) log ve metrik toplama, kural motoru ve GenAI analizi. Her gün otomatik çalışır.</p></div>
+          <div><h1>Toplama &amp; Analiz</h1><p>SSH ile agentless log ve metrik toplama, kural motoru ve GenAI analizi. Hedeflere hiçbir şey kurulmaz; her gün otomatik çalışır.</p></div>
         </div>
         <div class="card">
           <div class="run-actions">
             <div class="run-action">
+              <div class="ra-icon"><svg class="i" data-icon="bolt"></svg></div>
               <h4>Topla ve analiz et</h4>
-              <p class="muted sm">Seçili sunuculara SSH ile bağlanır, salt-okunur komutları çalıştırır, sonucu analiz eder. Hedefe hiçbir şey kurulmaz.</p>
+              <p class="muted sm">Seçili sunuculara SSH ile bağlanır, salt-okunur komutları çalıştırır ve sonucu analiz eder.</p>
               <div class="chips" id="runServers"></div>
               <div class="toolbar">
-                <label class="muted sm"><input type="checkbox" id="runAi" checked /> GenAI analizi</label>
+                <label class="check sm"><input type="checkbox" id="runAi" checked /> GenAI analizi</label>
                 <button class="btn primary" id="runCollect">Başlat</button>
               </div>
             </div>
             <div class="run-action">
+              <div class="ra-icon"><svg class="i" data-icon="sparkles"></svg></div>
               <h4>Sadece yeniden analiz et</h4>
-              <p class="muted sm">SSH'a gitmeden, sunucuların son ham verisini yeniden analiz eder (ör. GenAI bağlantısını yeni girdiyseniz).</p>
-              <div class="toolbar"><button class="btn secondary" id="runReanalyze">Yeniden analiz et</button></div>
+              <p class="muted sm">SSH'a gitmeden, son ham veriyi yeniden analiz eder (ör. GenAI bağlantısını yeni girdiyseniz veya eşikleri değiştirdiyseniz).</p>
+              <div class="toolbar"><button class="btn" id="runReanalyze">Yeniden analiz et</button></div>
             </div>
             <div class="run-action">
+              <div class="ra-icon"><svg class="i" data-icon="flask"></svg></div>
               <h4>Demo veri</h4>
               <p class="muted sm">SSH erişimi olmadan denemek için 4 örnek RHEL sunucusunun son 7 gününü üretir.</p>
-              <div class="toolbar"><button class="btn secondary" id="runDemo">Demo veri üret ve analiz et</button></div>
+              <div class="toolbar"><button class="btn" id="runDemo">Demo veri üret</button></div>
             </div>
           </div>
           <div id="runActive"></div>
         </div>
         <div class="card">
-          <div class="card-head"><h3>Çalıştırmalar</h3><span class="muted sm" id="schedInfo"></span></div>
+          <div class="card-head"><h3><svg class="i" data-icon="refresh"></svg>Çalıştırmalar</h3><span class="muted sm" id="schedInfo"></span></div>
           <div class="table-wrap"><table class="table" id="runTable"></table></div>
         </div>
       </section>
 
-      <!-- ---------- COLLECTED ---------- -->
+      <!-- ---------- GELEN LOGLAR ---------- -->
       <section class="view" data-view="collected">
         <div class="page-head">
-          <div><h1>Gelen Loglar</h1><p>Her sunucunun son toplamasında hangi log/metrik bölümü geldi (satır sayısı). Hücreye tıklayıp ham çıktıyı görün.</p></div>
-          <button class="btn secondary" id="colRefresh">Yenile</button>
+          <div><h1>Gelen Loglar</h1><p>Her sunucunun son toplamasında hangi log ve metrik bölümü geldi (satır sayısı). Hücreye tıklayıp ham çıktıyı görün.</p></div>
+          <button class="btn" id="colRefresh"><svg class="i" data-icon="refresh"></svg>Yenile</button>
         </div>
         <div class="card"><div class="table-wrap"><table class="table matrix" id="colTable"></table></div></div>
       </section>
 
-      <!-- ---------- ASK ---------- -->
+      <!-- ---------- UNIXAI'YE SOR ---------- -->
       <section class="view" data-view="ask">
         <div class="page-head">
-          <div><h1>UnixAI'ye Sor</h1><p>Bir sunucu veya filo bağlamı seçin; UnixAI son toplanan veriye göre cevaplasın.</p></div>
+          <div><h1>UnixAI'ye Sor</h1><p>Bir sunucu veya filo bağlamı seçin; UnixAI son toplanan metrik, log ve analizlere göre cevaplasın.</p></div>
         </div>
         <div class="card chat">
           <div class="chat-log" id="chatLog"></div>
@@ -141,29 +165,29 @@
         </div>
       </section>
 
-      <!-- ---------- SERVERS ---------- -->
+      <!-- ---------- SUNUCULAR ---------- -->
       <section class="view" data-view="servers">
         <div class="page-head">
           <div><h1>Sunucular</h1><p>Agentless toplama yapılacak RHEL sunucuları. Boş alanlar Ayarlar → SSH varsayılanlarını kullanır.</p></div>
           <div class="toolbar">
-            <button class="btn secondary" id="invImport">Toplu ekle</button>
-            <button class="btn primary" id="invAdd">Sunucu ekle</button>
+            <button class="btn" id="invImport"><svg class="i" data-icon="list"></svg>Toplu ekle</button>
+            <button class="btn primary" id="invAdd"><svg class="i" data-icon="plus"></svg>Sunucu ekle</button>
           </div>
         </div>
         <div class="card">
           <div class="table-wrap"><table class="table" id="invTable"></table></div>
         </div>
         <div class="card narrow">
-          <div class="card-head"><h3>SSH anahtarı</h3><span class="muted sm" id="keyInfo"></span></div>
+          <div class="card-head"><h3><svg class="i" data-icon="key"></svg>SSH anahtarı</h3><span class="muted sm mono" id="keyInfo"></span></div>
           <div id="keyBody"></div>
         </div>
       </section>
 
-      <!-- ---------- USAGE ---------- -->
+      <!-- ---------- TOKEN KULLANIMI ---------- -->
       <section class="view" data-view="usage">
         <div class="page-head">
-          <div><h1>Token Kullanımı</h1><p>Hangi analiz / soru ne kadar token kullandı, kim kullandı. Günlük limitler Ayarlar'dan belirlenir.</p></div>
-          <button class="btn secondary" id="usageCsv">CSV indir</button>
+          <div><h1>Token Kullanımı</h1><p>Hangi analiz veya soru ne kadar token kullandı, kim kullandı. Günlük limitler Ayarlar'dan belirlenir.</p></div>
+          <button class="btn" id="usageCsv"><svg class="i" data-icon="download"></svg>CSV indir</button>
         </div>
         <div class="card">
           <div class="toolbar">
@@ -172,8 +196,8 @@
               <button data-days="7" class="on">7 gün</button>
               <button data-days="30">30 gün</button>
             </div>
-            <label class="muted sm">Başlangıç <input type="date" id="usageFrom" class="input sm" /></label>
-            <label class="muted sm">Bitiş <input type="date" id="usageTo" class="input sm" /></label>
+            <label class="muted sm inline">Başlangıç <input type="date" id="usageFrom" class="input sm" /></label>
+            <label class="muted sm inline">Bitiş <input type="date" id="usageTo" class="input sm" /></label>
             <select id="usageUser" class="input sm"><option value="">Tüm kullanıcılar</option></select>
             <select id="usageKind" class="input sm">
               <option value="">Tüm türler</option>
@@ -194,7 +218,7 @@
             <div class="card-head"><h3>Kullanıcıya göre</h3></div>
             <div id="usageByUser"></div>
             <div class="card-head mt"><h3>Türe göre</h3></div>
-            <div class="table-wrap"><table class="table" id="usageByKind"></table></div>
+            <div class="table-wrap"><table class="table compact" id="usageByKind"></table></div>
           </div>
         </div>
         <div class="card">
@@ -203,37 +227,45 @@
         </div>
       </section>
 
-      <!-- ---------- LOGS ---------- -->
+      <!-- ---------- AI LOGLARI ---------- -->
       <section class="view" data-view="logs">
         <div class="page-head">
           <div><h1>AI Logları</h1><p>Token servisine ve GPT'ye giden her istek ile dönen cevap. Gizli alanlar maskelenir.</p></div>
+          <div class="toolbar">
+            <label class="check sm"><input type="checkbox" id="logAuto" /> 5 sn'de bir yenile</label>
+            <button class="btn" id="logRefresh"><svg class="i" data-icon="refresh"></svg>Yenile</button>
+          </div>
         </div>
         <div class="card">
-          <div class="toolbar">
-            <button class="btn secondary" id="logRefresh">Yenile</button>
-            <label class="muted sm"><input type="checkbox" id="logAuto" /> 5 sn'de bir yenile</label>
-          </div>
           <div class="table-wrap"><table class="table" id="logTable"></table></div>
         </div>
       </section>
 
-      <!-- ---------- SETTINGS ---------- -->
+      <!-- ---------- AYARLAR ---------- -->
       <section class="view" data-view="settings">
         <div class="page-head">
-          <div><h1>Ayarlar</h1><p>GenAI bağlantısı, SSH, zamanlama ve eşikler sunucuda saklanır; servis yeniden başlatmaya gerek yoktur.</p></div>
+          <div><h1>Ayarlar</h1><p>GenAI bağlantısı, SSH, zamanlama ve eşikler sunucuda saklanır; servisi yeniden başlatmaya gerek yoktur.</p></div>
         </div>
+        <nav class="settings-nav">
+          <a href="#/settings" data-anchor="setGenai">GenAI bağlantısı</a>
+          <a href="#/settings" data-anchor="setSsh">SSH &amp; zamanlama</a>
+          <a href="#/settings" data-anchor="setThr">Eşikler</a>
+          <a href="#/settings" data-anchor="setLimits">Token limitleri</a>
+          <a href="#/settings" data-anchor="setPrompt">Sistem mesajı</a>
+          <a href="#/settings" data-anchor="setApi">API</a>
+        </nav>
 
-        <div class="card">
+        <div class="card anchor" id="setGenai">
           <div class="card-head">
-            <h3>GenAI bağlantısı</h3>
+            <h3><svg class="i" data-icon="sparkles"></svg>GenAI bağlantısı</h3>
             <span class="muted sm" id="connInfo"></span>
           </div>
           <div class="flow">
-            <div class="flow-step" id="flowTms"><b>1</b><span>Token servisi (TMS)</span><small class="mono" id="flowTmsHost">—</small></div>
+            <div class="flow-step" id="flowTms"><b>1</b><span>Token servisi (TMS)</span><small id="flowTmsHost">—</small></div>
             <div class="flow-arrow">→</div>
             <div class="flow-step"><b>2</b><span>Authorization: Bearer &lt;token&gt;</span><small>sunucuda cache'lenir</small></div>
             <div class="flow-arrow">→</div>
-            <div class="flow-step" id="flowChat"><b>3</b><span>chat/completions (GPT)</span><small class="mono" id="flowChatHost">—</small></div>
+            <div class="flow-step" id="flowChat"><b>3</b><span>chat/completions (GPT)</span><small id="flowChatHost">—</small></div>
           </div>
           <form id="connForm" class="form">
             <div class="grid-2">
@@ -293,16 +325,16 @@
             <small class="muted">Yer tutucular: <code>{{uuid}}</code> her istekte yeni UUID · <code>{{timestamp}}</code> · <code>{{env:İSİM}}</code> sırrı <code>.env</code>'de tutar · chat header'larında <code>{{token}}</code>.</small>
             <div class="toolbar">
               <button class="btn primary" type="submit">Kaydet</button>
-              <button class="btn secondary" type="button" id="connTestToken">Kaydet + token al</button>
-              <button class="btn secondary" type="button" id="connTestChat">Kaydet + GPT'ye test mesajı</button>
+              <button class="btn" type="button" id="connTestToken">Kaydet + token al</button>
+              <button class="btn" type="button" id="connTestChat">Kaydet + GPT'ye test mesajı</button>
             </div>
             <div id="connResult"></div>
           </form>
         </div>
 
         <div class="grid-2">
-          <div class="card">
-            <div class="card-head"><h3>SSH (agentless toplama)</h3></div>
+          <div class="card anchor" id="setSsh">
+            <div class="card-head"><h3><svg class="i" data-icon="terminal"></svg>SSH (agentless toplama)</h3></div>
             <form id="sshForm" class="form">
               <div class="grid-2">
                 <label>Kullanıcı<input class="input" name="ssh.user" /><small>Varsayılan root</small></label>
@@ -320,7 +352,7 @@
                 <label>Komut z.a. (sn)<input class="input" name="ssh.commandTimeout" type="number" /></label>
                 <label>Eş zamanlı<input class="input" name="ssh.concurrency" type="number" /></label>
               </div>
-              <div class="card-head mt"><h3>Zamanlama ve analiz</h3></div>
+              <div class="sub-h">Zamanlama ve analiz</div>
               <div class="grid-2">
                 <label class="check"><input type="checkbox" name="schedule.enabled" /> Her gün otomatik topla</label>
                 <label>Saat<input class="input" name="schedule.time" type="time" /></label>
@@ -332,18 +364,18 @@
               <div class="toolbar"><button class="btn primary" type="submit">Kaydet</button><span class="muted sm" id="sshMsg"></span></div>
             </form>
           </div>
-          <div class="card">
-            <div class="card-head"><h3>Kural motoru eşikleri</h3></div>
+          <div class="card anchor" id="setThr">
+            <div class="card-head"><h3><svg class="i" data-icon="shield"></svg>Kural motoru eşikleri</h3></div>
             <form id="thrForm" class="form"><div class="grid-2" id="thrFields"></div>
               <div class="toolbar"><button class="btn primary" type="submit">Kaydet</button><button class="btn link" type="button" id="thrReset">Varsayılana dön</button></div>
             </form>
           </div>
         </div>
 
-        <div class="card narrow">
-          <div class="card-head"><h3>Token limitleri</h3><span class="muted sm" id="limitInfo"></span></div>
-          <form id="limitForm" class="form">
-            <div class="grid-2">
+        <div class="grid-2">
+          <div class="card anchor" id="setLimits">
+            <div class="card-head"><h3><svg class="i" data-icon="chart"></svg>Token limitleri</h3><span class="muted sm" id="limitInfo"></span></div>
+            <form id="limitForm" class="form">
               <label>Günlük toplam limit (token)
                 <input class="input" name="dailyLimit" type="number" min="0" step="1000" placeholder="ör. 500000" />
                 <small>Bir günde harcanabilecek toplam token. 0 = sınırsız.</small>
@@ -352,14 +384,24 @@
                 <input class="input" name="perUserDailyLimit" type="number" min="0" step="1000" placeholder="0" />
                 <small>Her kullanıcı için ayrı sınır (zamanlayıcı da bir kullanıcıdır). 0 = sınırsız.</small>
               </label>
-            </div>
-            <small class="muted">Limit dolunca yeni AI istekleri reddedilir ve sunucular kural motoruyla analiz edilir; limit her gün 00:00'da sıfırlanır.</small>
-            <div class="toolbar"><button class="btn primary" type="submit">Kaydet</button></div>
-          </form>
+              <small class="muted">Limit dolunca yeni AI istekleri reddedilir ve sunucular kural motoruyla analiz edilir; limit her gün 00:00'da sıfırlanır.</small>
+              <div class="toolbar"><button class="btn primary" type="submit">Kaydet</button></div>
+            </form>
+          </div>
+          <div class="card" id="uiCard">
+            <div class="card-head"><h3>Arayüz</h3></div>
+            <form id="settingsForm" class="form">
+              <label>Kullanıcı adınız
+                <input class="input" name="userName" placeholder="ör. EnisA" maxlength="80" />
+                <small>Token raporlarında "kim kullandı" bilgisi olarak görünür (giriş kapalıyken).</small>
+              </label>
+              <div class="toolbar"><button class="btn primary" type="submit">Kaydet</button><span class="muted sm" id="settingsMsg"></span></div>
+            </form>
+          </div>
         </div>
-        <div class="card narrow">
+        <div class="card anchor" id="setPrompt">
           <div class="card-head">
-            <h3>Sistem mesajı <span class="muted sm">(role: "system")</span></h3>
+            <h3><svg class="i" data-icon="chat"></svg>Sistem mesajı <span class="muted sm">(role: "system")</span></h3>
             <span class="muted sm" id="promptInfo"></span>
           </div>
           <form id="promptForm" class="form">
@@ -373,18 +415,8 @@
             </div>
           </form>
         </div>
-        <div class="card narrow" id="uiCard">
-          <div class="card-head"><h3>Arayüz</h3></div>
-          <form id="settingsForm" class="form">
-            <label>Kullanıcı adınız
-              <input class="input" name="userName" placeholder="ör. EnisA" maxlength="80" />
-              <small>Token raporlarında "kim kullandı" bilgisi olarak görünür (giriş kapalıyken).</small>
-            </label>
-            <div class="toolbar"><button class="btn primary" type="submit">Kaydet</button><span class="muted sm" id="settingsMsg"></span></div>
-          </form>
-        </div>
-        <div class="card narrow">
-          <div class="card-head"><h3>API sözleşmesi</h3></div>
+        <div class="card anchor" id="setApi">
+          <div class="card-head"><h3><svg class="i" data-icon="terminal"></svg>API sözleşmesi</h3></div>
           <pre class="contract" id="contract"></pre>
         </div>
       </section>
@@ -394,7 +426,10 @@
   <!-- ============ GİRİŞ ============ -->
   <div class="login-screen hidden" id="loginScreen">
     <div class="login-box">
-      <div class="login-brand"><img src="favicon.svg" alt="" width="36" height="36" /><span><b>UnixAI</b> OS</span></div>
+      <div class="login-brand">
+        <span class="brand-mark"><img src="favicon.svg" alt="" /></span>
+        <span class="brand-text"><b>UnixAI <span>OS</span></b><small>RHEL agentless gözlem &amp; AI analiz</small></span>
+      </div>
       <h1>Giriş yapın</h1>
       <p class="muted" id="loginHint">Kurumsal (LDAP / Active Directory) kullanıcı adı ve parolanızı kullanın.</p>
       <form id="loginForm" class="form" autocomplete="on">
@@ -407,6 +442,14 @@
         <div class="alert danger hidden" id="loginError"></div>
         <button class="btn primary block" type="submit" id="loginBtn">Giriş yap</button>
       </form>
+    </div>
+  </div>
+
+  <!-- ============ KOMUT PALETİ (Ctrl+K) ============ -->
+  <div class="palette hidden" id="palette">
+    <div class="palette-box" role="dialog" aria-label="Hızlı arama">
+      <div class="palette-input"><svg class="i" data-icon="search"></svg><input id="paletteInput" placeholder="Sunucu adı, ekran veya işlem…" autocomplete="off" /><kbd>Esc</kbd></div>
+      <div class="palette-list" id="paletteList"></div>
     </div>
   </div>
 

@@ -345,6 +345,10 @@ def start_demo(ai=True, user=None, ip=None) -> dict:
                         for s in servers]
                 results = [f.result() for f in futs]
             _finish(run, results, d == 0 and use_ai)
+            if d:  # geçmiş günler için gerçekçi süre
+                with _lock:
+                    run["finishedAt"] = (at + timedelta(seconds=4)).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+                    _save_run(run)
 
     return _start(first, target, register=False)
 

@@ -13,18 +13,27 @@ const State = {
   logTimer: null,
   settings: null,
   connection: null,
+  srvStatus: "all",
+  srvView: readView(),
 };
 
+function readView() {
+  try { return localStorage.getItem("unixai.srvView") || "tiles"; } catch { return "tiles"; }
+}
+
 const STATUS_META = {
-  OK: { label: "Sağlıklı", cls: "green", icon: "✓" },
-  WARNING: { label: "Uyarı", cls: "gold", icon: "!" },
-  CRITICAL: { label: "Kritik", cls: "red", icon: "✕" },
+  OK: { label: "Sağlıklı", cls: "green", icon: "check" },
+  WARNING: { label: "Uyarı", cls: "gold", icon: "alert" },
+  CRITICAL: { label: "Kritik", cls: "red", icon: "alert" },
+  FAILED: { label: "Ulaşılamadı", cls: "red", icon: "alert" },
 };
 const statusTag = (s) => {
   const m = STATUS_META[s];
-  return m ? `<span class="label ${m.cls}"><b aria-hidden="true">${m.icon}</b> ${m.label}</span>` : `<span class="label">—</span>`;
+  return m ? `<span class="label ${m.cls}">${icon(m.icon, "i i-xs")}${m.label}</span>` : `<span class="label">Toplanmadı</span>`;
 };
 const prioTag = (p) => `<span class="label prio-${esc(p)}">${esc(p)}</span>`;
+/** Sunucunun genel bakıştaki durumu: OK | WARNING | CRITICAL | FAILED | NONE */
+const srvState = (s) => (!s.latest ? "NONE" : s.latest.collect === "failed" ? "FAILED" : s.latest.status || "NONE");
 const ENGINE_LABEL = { genai: "GenAI", rules: "Kural motoru", "genai-text+rules": "GenAI (metin) + kural", demo: "Demo" };
 const TRIGGER_LABEL = { manual: "Elle", schedule: "Zamanlayıcı", reanalyze: "Yeniden analiz", demo: "Demo" };
 const RUN_STATUS = { running: ["Sürüyor", "blue"], done: ["Tamamlandı", "green"], partial: ["Kısmen", "gold"], failed: ["Başarısız", "red"], interrupted: ["Yarıda kaldı", "gold"] };
@@ -96,69 +105,166 @@ async function loadOverview() {
     State.overview = await Api.overview();
     renderOverview();
   } catch (e) {
-    $("#kpis").innerHTML = errorView(e);
+    $("#hero").innerHTML = errorView(e);
   }
 }
 
+const thresholds = () => State.settings?.thresholds || { fs_warn_pct: 85, fs_crit_pct: 95, mem_avail_warn_pct: 10, load_per_core_warn: 1.5, load_per_core_crit: 3, iowait_warn_pct: 20, ssh_fail_warn: 100 };
+
 function renderOverview() {
   const o = State.overview;
-  const withData = o.servers.filter((s) => s.latest && s.latest.collect !== "failed");
-  const crit = withData.filter((s) => s.latest.status === "CRITICAL").length;
-  const warn = withData.filter((s) => s.latest.status === "WARNING").length;
-  const failed = o.servers.filter((s) => s.latest?.collect === "failed").length;
-  const p1 = withData.reduce((n, s) => n + (s.latest.p1 || 0), 0);
+  const counts = { CRITICAL: 0, WARNING: 0, OK: 0, FAILED: 0, NONE: 0 };
+  o.servers.forEach((s) => counts[srvState(s)]++);
+  const analyzed = o.servers.filter((s) => s.latest && s.latest.collect !== "failed" && s.latest.score != null);
+  const avg = analyzed.length ? Math.round(analyzed.reduce((n, s) => n + s.latest.score, 0) / analyzed.length) : null;
+  const p1 = analyzed.reduce((n, s) => n + (s.latest.p1 || 0), 0);
+  const findings = analyzed.reduce((n, s) => n + (s.latest.findings || 0), 0);
   const lr = o.lastRun;
   $("#modeLabel").className = `label ${o.mode === "genai" ? "blue" : "gold"}`;
-  $("#modeLabel").textContent = o.mode === "genai" ? "GenAI analizi açık" : "Demo modu (GenAI bağlı değil)";
-  $("#kpis").innerHTML = [
-    `<div class="kpi"><div class="k-label">Sunucular</div><div class="k-val">${o.servers.length}</div>
-      <div class="k-sub">${o.servers.filter((s) => s.inInventory).length} envanterde · ${withData.length} analiz edildi</div></div>`,
-    `<div class="kpi kpi-crit"><div class="k-label">Kritik / Uyarı</div><div class="k-val">${crit} <span class="k-slash">/ ${warn}</span></div>
-      <div class="k-sub">${failed ? `${failed} sunucuya ulaşılamadı` : "toplama hatası yok"}</div></div>`,
-    `<div class="kpi kpi-warn"><div class="k-label">P1 aksiyonlar</div><div class="k-val">${p1}</div><div class="k-sub">hemen yapılması gereken</div></div>`,
-    `<div class="kpi"><div class="k-label">Son toplama</div><div class="k-val sm">${lr ? esc(ago(lr.startedAt)) : "—"}</div>
-      <div class="k-sub">${lr ? `${esc(TRIGGER_LABEL[lr.trigger] || lr.trigger)} · ${esc(RUN_STATUS[lr.status]?.[0] || lr.status)}` : "henüz yok"}${o.scheduler.enabled ? ` · her gün ${esc(o.scheduler.time)}` : ""}</div></div>`,
-  ].join("");
+  $("#modeLabel").innerHTML = o.mode === "genai" ? `${icon("sparkles", "i i-xs")}GenAI analizi açık` : `${icon("alert", "i i-xs")}Demo modu · GenAI bağlı değil`;
+  const bad = counts.CRITICAL + counts.FAILED;
+  $("#navCrit").textContent = bad;
+  $("#navCrit").classList.toggle("hidden", !bad);
+  renderNavFoot();
+
+  if (!o.servers.length) {
+    $("#hero").innerHTML = `<div class="card onboard">
+      <div class="empty-ill">${icon("servers")}</div>
+      <h2>UnixAI OS'a hoş geldiniz</h2>
+      <p class="muted">RHEL sunucularınızdan agentless olarak log ve metrik toplayıp GenAI ile analiz etmek için üç adım:</p>
+      <ol class="steps">
+        <li><a href="#/settings">${icon("sparkles")}<b>GenAI bağlantısı</b><span>Token servisi ve GPT adreslerini girin</span></a></li>
+        <li><a href="#/servers">${icon("servers")}<b>Sunucu ekle</b><span>RHEL sunucularını envantere ekleyin, SSH anahtarını yetkilendirin</span></a></li>
+        <li><a href="#/runs">${icon("bolt")}<b>Topla ve analiz et</b><span>İlk toplamayı başlatın; sonra her gün otomatik</span></a></li>
+      </ol>
+      <button class="btn" id="obDemo">${icon("flask")}Önce demo veriyle dene</button>
+    </div>`;
+    $("#obDemo").onclick = (e) => startRun("demo", e.currentTarget);
+    $("#fleetCard").innerHTML = "";
+    renderServers();
+    return;
+  }
+
+  const total = o.servers.length;
+  const seg = (k, cls) => (counts[k] ? `<i class="${cls}" style="flex:${counts[k]}" title="${STATUS_META[k]?.label || "Toplanmadı"}: ${counts[k]}"></i>` : "");
+  $("#hero").innerHTML = `<div class="hero">
+    <div class="card hero-health">
+      ${avg != null ? gauge(avg, { size: 132, label: "filo skoru", stroke: 11 }) : `<div class="empty-ill">${icon("servers")}</div>`}
+      <div class="hero-meta">
+        <h2>${total} sunucu izleniyor</h2>
+        <div class="statbar">${seg("CRITICAL", "s-crit")}${seg("FAILED", "s-crit")}${seg("WARNING", "s-warn")}${seg("OK", "s-ok")}${seg("NONE", "s-off")}</div>
+        <div class="legend">
+          <span><i class="dot s-crit"></i>Kritik <b>${counts.CRITICAL}</b></span>
+          <span><i class="dot s-warn"></i>Uyarı <b>${counts.WARNING}</b></span>
+          <span><i class="dot s-ok"></i>Sağlıklı <b>${counts.OK}</b></span>
+          ${counts.FAILED ? `<span><i class="dot s-crit"></i>Ulaşılamadı <b>${counts.FAILED}</b></span>` : ""}
+          ${counts.NONE ? `<span><i class="dot s-off"></i>Toplanmadı <b>${counts.NONE}</b></span>` : ""}
+        </div>
+        <div class="muted sm">${icon("clock", "i i-xs")} ${o.scheduler.enabled ? `Otomatik toplama her gün <b>${esc(o.scheduler.time)}</b>` : "Otomatik toplama kapalı"}</div>
+      </div>
+    </div>
+    <div class="hero-kpis">
+      <div class="kpi kpi-p1"><div class="k-label">${icon("bolt", "i i-xs")}P1 aksiyonlar</div><div class="k-val">${p1}</div><div class="k-sub">hemen yapılması gereken</div></div>
+      <div class="kpi"><div class="k-label">${icon("shield", "i i-xs")}Kural bulguları</div><div class="k-val">${findings}</div><div class="k-sub">${analyzed.length} sunucuda eşik aşımı</div></div>
+      <div class="kpi"><div class="k-label">${icon("refresh", "i i-xs")}Son toplama</div><div class="k-val sm">${lr ? esc(ago(lr.finishedAt || lr.startedAt)) : "—"}</div>
+        <div class="k-sub">${lr ? `${esc(TRIGGER_LABEL[lr.trigger] || lr.trigger)} · <span class="label ${RUN_STATUS[lr.status]?.[1] || ""}">${esc(RUN_STATUS[lr.status]?.[0] || lr.status)}</span>` : "henüz yok"}</div></div>
+    </div>
+  </div>`;
 
   const f = o.fleet;
-  $("#fleetCard").innerHTML = !o.servers.length
-    ? `<div class="empty"><h4>Henüz sunucu yok</h4><p><a href="#/servers">Sunucular</a> ekranından RHEL sunucularınızı ekleyin veya
-        <a href="#/runs">Toplama &amp; Analiz</a> ekranında <b>Demo veri üret</b> ile deneyin.</p></div>`
-    : !f ? `<div class="card-head"><h3>Filo özeti</h3></div><p class="muted">Filo özeti en az iki sunucu analiz edildiğinde üretilir.</p>`
-    : `<div class="card-head"><h3>Filo özeti</h3><span class="muted sm">${esc(ENGINE_LABEL[f.engine] || f.engine)} · ${esc(fmtTime(f.time))}</span></div>
-       ${f.aiError ? `<div class="alert danger">GenAI filo özeti alınamadı, kural özeti gösteriliyor: ${esc(f.aiError)}</div>` : ""}
-       <p>${esc(f.fleet_summary)}</p>
-       <div class="grid-2">
-         <div><h4 class="sub-h">Bugünün öncelikli işleri</h4>
-           <ol class="top-actions">${f.todays_top_actions.map((a) => `<li><a href="#/server/${encodeURIComponent(a.server)}"><b>${esc(a.server)}</b></a> — ${esc(a.title)}
-             ${a.why_now ? `<div class="muted sm">${esc(a.why_now)}</div>` : ""}</li>`).join("") || "<li class='muted'>—</li>"}</ol></div>
-         <div><h4 class="sub-h">Sunucular arası örüntüler</h4>
-           <ul class="patterns">${f.cross_server_patterns.map((p) => `<li>${esc(p)}</li>`).join("") || "<li class='muted'>—</li>"}</ul></div>
-       </div>`;
-  renderServerTable();
+  $("#fleetCard").innerHTML = !f ? "" : `<div class="panel-grid">
+    <div class="card">
+      <div class="card-head"><h3>${icon("list")}Bugünün işleri</h3><span class="muted sm">${esc(ENGINE_LABEL[f.engine] || f.engine)} · ${esc(fmtTime(f.time))}</span></div>
+      ${f.todays_top_actions.length ? `<ol class="todo">${f.todays_top_actions.map((x) => `<li><div><div class="t-title"><a href="#/server/${encodeURIComponent(x.server)}">${esc(x.server)}</a>${esc(x.title)}</div>
+        ${x.why_now ? `<div class="muted sm">${esc(x.why_now)}</div>` : ""}</div></li>`).join("")}</ol>` : `<p class="muted">Bugün için öncelikli iş yok.</p>`}
+    </div>
+    <div class="card">
+      <div class="card-head"><h3>${icon("sparkles")}Filo özeti</h3></div>
+      ${f.aiError ? `<div class="alert danger">GenAI filo özeti alınamadı, kural özeti gösteriliyor: ${esc(f.aiError)}</div>` : ""}
+      <p class="summary">${esc(f.fleet_summary)}</p>
+      ${f.cross_server_patterns.length ? `<div class="sub-h">Sunucular arası örüntüler</div><ul class="patterns">${f.cross_server_patterns.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
+    </div>
+  </div>`;
+  renderServers();
+  animateGauges($("#hero"));
 }
 
-function renderServerTable() {
+function renderNavFoot() {
+  const h = State.health;
+  if (!h) return;
+  $("#navFoot").innerHTML = `
+    <div class="row"><span>Analiz</span><b>${h.mode === "genai" ? esc(h.genai.model || "GenAI") : "Kural motoru"}</b></div>
+    <div class="row"><span>Zamanlayıcı</span><b>${h.scheduler.enabled ? esc(h.scheduler.time) : "kapalı"}</b></div>
+    <div class="row"><span>Envanter</span><b>${h.servers} sunucu</b></div>`;
+}
+
+function meter(label, value, pct, level, title = "") {
+  return `<div class="meter" title="${esc(title)}"><span>${label}</span><div class="track"><i class="${level}" style="width:${Math.max(0, Math.min(100, pct))}%"></i></div><b>${value}</b></div>`;
+}
+
+function serverMeters(h) {
+  const t = thresholds();
+  const lvl = (v, w, c) => (v >= c ? "m-crit" : v >= w ? "m-warn" : "");
+  const memUsed = h.mem_available_pct != null ? Math.round(100 - h.mem_available_pct) : null;
+  const memLvl = h.mem_available_pct == null ? "" : h.mem_available_pct < t.mem_avail_warn_pct ? "m-crit" : h.mem_available_pct < t.mem_avail_warn_pct * 2 ? "m-warn" : "";
+  return `<div class="meters">
+    ${meter("Disk", h.fs_max_pct != null ? `%${h.fs_max_pct}` : "—", h.fs_max_pct ?? 0, lvl(h.fs_max_pct ?? 0, t.fs_warn_pct, t.fs_crit_pct), h.fs_max_mount ? `En dolu: ${h.fs_max_mount}` : "")}
+    ${meter("Bellek", memUsed != null ? `%${memUsed}` : "—", memUsed ?? 0, memLvl, "Kullanılan bellek")}
+    ${meter("Load/core", h.load_per_core ?? "—", ((h.load_per_core ?? 0) / t.load_per_core_crit) * 100, lvl(h.load_per_core ?? 0, t.load_per_core_warn, t.load_per_core_crit), "15 dk load / CPU sayısı")}
+  </div>`;
+}
+
+function filteredServers() {
   const q = $("#srvFilter").value.toLowerCase();
-  const order = { CRITICAL: 0, WARNING: 1, OK: 2 };
-  const rows = State.overview.servers
+  const order = { FAILED: 0, CRITICAL: 1, WARNING: 2, OK: 3, NONE: 4 };
+  return (State.overview?.servers || [])
+    .filter((s) => State.srvStatus === "all" || srvState(s) === State.srvStatus)
     .filter((s) => !q || `${s.name} ${s.host} ${s.tags.join(" ")}`.toLowerCase().includes(q))
-    .sort((a, b) => (order[a.latest?.status] ?? (a.latest?.collect === "failed" ? -1 : 3)) - (order[b.latest?.status] ?? (b.latest?.collect === "failed" ? -1 : 3)) || a.name.localeCompare(b.name));
-  const th = State.settings?.thresholds || { fs_warn_pct: 85, fs_crit_pct: 95 };
+    .sort((a, b) => order[srvState(a)] - order[srvState(b)] || (a.latest?.score ?? 101) - (b.latest?.score ?? 101) || a.name.localeCompare(b.name));
+}
+
+function renderServers() {
+  const all = State.overview?.servers || [];
+  const c = (k) => all.filter((s) => srvState(s) === k).length;
+  const opts = [["all", "Tümü", all.length], ["CRITICAL", "Kritik", c("CRITICAL")], ["WARNING", "Uyarı", c("WARNING")], ["OK", "Sağlıklı", c("OK")], ["FAILED", "Ulaşılamadı", c("FAILED")]]
+    .filter(([k, , n]) => k === "all" || n);
+  if (!opts.some(([k]) => k === State.srvStatus)) State.srvStatus = "all";
+  $("#srvStatus").innerHTML = opts.map(([k, l, n]) => `<button data-st="${k}" class="${State.srvStatus === k ? "on" : ""}">${l} <span class="cnt">${n}</span></button>`).join("");
+  $$("#srvView button").forEach((b) => b.classList.toggle("on", b.dataset.view === State.srvView));
+  $("#srvTiles").classList.toggle("hidden", State.srvView !== "tiles");
+  $("#srvTableWrap").classList.toggle("hidden", State.srvView !== "table");
+  const rows = filteredServers();
+  const emptyMsg = all.length ? "Filtreye uyan sunucu yok." : "Henüz sunucu yok.";
+  if (State.srvView === "tiles") {
+    $("#srvTiles").innerHTML = rows.map((s) => {
+      const l = s.latest, h = l?.headline || {}, st = srvState(s);
+      return `<div class="tile st-${st}" data-href="#/server/${encodeURIComponent(s.name)}" tabindex="0">
+        <div class="tile-top">
+          <div><div class="tile-name">${esc(s.name)}</div><div class="tile-host">${esc(s.host || "")}${h.os ? ` · ${esc(h.os)}` : ""}</div></div>
+          ${l?.score != null && st !== "FAILED" ? `<div class="tile-score"><b style="color:${scoreColor(l.score)}">${l.score}</b><small>skor</small></div>` : ""}
+        </div>
+        <div class="tile-tags">${statusTag(st === "NONE" ? null : st)}${s.demo ? `<span class="label">demo</span>` : ""}${s.inInventory && !s.enabled ? `<span class="label">pasif</span>` : ""}${s.tags.map((t) => `<span class="label">${esc(t)}</span>`).join("")}</div>
+        ${st === "FAILED" ? `<div class="tile-err">${esc(l.error || "Toplama başarısız")}</div>` : l?.headline ? serverMeters(h) : `<div class="tile-err muted">Henüz toplanmadı.</div>`}
+        <div class="tile-foot"><span>${icon("clock", "i i-xs")} ${l ? esc(ago(l.collectedAt)) : "—"}${l?.engine ? ` · ${esc(ENGINE_LABEL[l.engine] || l.engine)}` : ""}</span>
+          ${l?.p1 != null ? `<span class="p1 ${l.p1 ? "" : "zero"}">P1 ${l.p1}</span>` : ""}</div>
+      </div>`;
+    }).join("") || `<div class="empty">${emptyMsg}</div>`;
+    return;
+  }
+  const th = thresholds();
   $("#srvTable").innerHTML = `<tr><th>Sunucu</th><th>Durum</th><th>Sağlık</th><th>En dolu disk</th><th class="num">Load/core</th><th class="num">Boş bellek</th><th class="num">P1</th><th>Son toplama</th></tr>` +
     (rows.map((s) => {
       const l = s.latest, h = l?.headline || {};
       return `<tr class="clickable" data-href="#/server/${encodeURIComponent(s.name)}">
-        <td><div class="t-name">${esc(s.name)}</div><div class="t-sub">${esc(s.host || "")}${h.os ? ` · ${esc(h.os)}` : ""}
-          ${s.demo ? ` <span class="label">demo</span>` : ""}${s.tags.map((t) => ` <span class="label">${esc(t)}</span>`).join("")}${s.inInventory && !s.enabled ? ` <span class="label">pasif</span>` : ""}</div></td>
-        <td>${!l ? `<span class="muted sm">Toplanmadı</span>` : l.collect === "failed" ? `<span class="label red" title="${esc(l.error)}"><b>✕</b> Ulaşılamadı</span>` : statusTag(l.status)}</td>
-        <td>${l?.score != null ? scoreBar(l.score) : `<span class="muted sm">—</span>`}</td>
+        <td><div class="t-name">${esc(s.name)}</div><div class="t-sub">${esc(s.host || "")}${h.os ? ` · ${esc(h.os)}` : ""}</div></td>
+        <td>${statusTag(srvState(s) === "NONE" ? null : srvState(s))}</td>
+        <td>${l?.score != null && l.collect !== "failed" ? scoreBar(l.score) : `<span class="muted sm">—</span>`}</td>
         <td>${h.fs_max_pct != null ? `${pctCell(h.fs_max_pct, th.fs_warn_pct, th.fs_crit_pct)} <span class="t-sub mono">${esc(h.fs_max_mount)}</span>` : "—"}</td>
         <td class="num">${h.load_per_core ?? "—"}</td>
         <td class="num">${h.mem_available_pct != null ? `%${h.mem_available_pct}` : "—"}</td>
-        <td class="num">${l?.p1 ? `<b class="status-err">${l.p1}</b>` : l?.p1 === 0 ? "0" : "—"}</td>
-        <td class="t-sub">${l ? `${esc(ago(l.collectedAt))}<br>${esc(ENGINE_LABEL[l.engine] || "")}` : "—"}</td></tr>`;
-    }).join("") || `<tr><td colspan="8" class="muted">Eşleşen sunucu yok.</td></tr>`);
+        <td class="num">${l?.p1 ? `<span class="p1">${l.p1}</span>` : l?.p1 === 0 ? "0" : "—"}</td>
+        <td class="t-sub">${l ? esc(ago(l.collectedAt)) : "—"}</td></tr>`;
+    }).join("") || `<tr><td colspan="8" class="muted">${emptyMsg}</td></tr>`);
 }
 
 /* ================================================================== */
@@ -167,7 +273,9 @@ function renderServerTable() {
 async function loadServer(name, run) {
   State.sd = { ...State.sd, name, run: run || null };
   $("#sdName").textContent = name;
-  $("#sdSub").textContent = "";
+  $("#sdStatus").innerHTML = "";
+  $("#sdSub").innerHTML = "";
+  $("#sdVitals").classList.add("hidden");
   $("#sdAsk").href = `#/ask/${encodeURIComponent(name)}`;
   $("#sdBody").innerHTML = loadingView("Yükleniyor…");
   const [snap, hist] = await Promise.allSettled([Api.snapshot(name, run), Api.serverHistory(name)]);
@@ -175,34 +283,58 @@ async function loadServer(name, run) {
   $("#sdRun").innerHTML = State.sd.hist.map((h) => `<option value="${esc(h.runId)}">${esc(fmtTime(h.time))} · ${h.collect === "failed" ? "ulaşılamadı" : `skor ${h.score ?? "—"}`}</option>`).join("");
   if (snap.status === "rejected") {
     const last = State.sd.hist[0];
+    if (last?.collect === "failed") $("#sdStatus").innerHTML = statusTag("FAILED");
     $("#sdBody").innerHTML = `<div class="card">${last?.error ? `<div class="alert danger"><b>Son toplama başarısız:</b> ${esc(last.error)}</div>` : ""}
-      <div class="empty"><h4>Bu sunucu için analiz yok</h4><p>${esc(snap.reason.message)}</p></div></div>`;
+      <div class="empty"><div class="empty-ill">${icon("servers")}</div><h4>Bu sunucu için analiz yok</h4><p>${esc(snap.reason.message)}</p>
+      <p class="muted sm">SSH erişimini Sunucular ekranındaki <b>SSH testi</b> ile kontrol edip <b>Bu sunucuyu topla</b>'ya basın.</p></div></div>`;
     return;
   }
   const s = State.sd.snap = snap.value;
   $("#sdRun").value = s.run.id;
   const m = s.metrics;
-  $("#sdSub").innerHTML = `${esc(s.host || "")} · ${esc(m.os_release || "")} · kernel ${esc(m.kernel)} · uptime ${m.uptime_days} gün · ${m.cpu_count} CPU · ${fmtMb(m.memory.mem_total_mb)} RAM`;
+  $("#sdStatus").innerHTML = statusTag(s.analysis.status);
+  const fact = (v) => `<span class="fact">${esc(v)}</span>`;
+  $("#sdSub").innerHTML = [s.host, m.os_release.replace(/Red Hat Enterprise Linux( Server)? release/, "RHEL"), `kernel ${m.kernel}`, `uptime ${m.uptime_days} gün`,
+    `${m.cpu_count} CPU`, `${fmtMb(m.memory.mem_total_mb)} RAM`].filter(Boolean).map(fact).join("") +
+    (s.inventory?.tags || []).map((t) => `<span class="label">${esc(t)}</span>`).join("");
+  renderVitals(s);
   renderServer();
+}
+
+function renderVitals(s) {
+  const h = s.headline || {}, t = thresholds(), m = s.metrics;
+  const v = (label, value, sub, cls = "") => `<div class="vital ${cls}"><div class="v-l">${label}</div><div class="v-v">${value}</div><div class="v-s">${esc(sub)}</div></div>`;
+  const lvl = (x, w, c) => (x == null ? "" : x >= c ? "v-crit" : x >= w ? "v-warn" : "");
+  const memLvl = h.mem_available_pct == null ? "" : h.mem_available_pct < t.mem_avail_warn_pct ? "v-crit" : h.mem_available_pct < t.mem_avail_warn_pct * 2 ? "v-warn" : "";
+  $("#sdVitals").innerHTML = [
+    v("En dolu disk", h.fs_max_pct != null ? `%${h.fs_max_pct}` : "—", h.fs_max_mount || "", lvl(h.fs_max_pct, t.fs_warn_pct, t.fs_crit_pct)),
+    v("Boş bellek", h.mem_available_pct != null ? `%${h.mem_available_pct}` : "—", `swap %${h.swap_used_pct ?? 0}`, memLvl),
+    v("Load / core", h.load_per_core ?? "—", `15 dk · ${m.cpu_count} CPU`, lvl(h.load_per_core, t.load_per_core_warn, t.load_per_core_crit)),
+    v("I/O wait", h.cpu_iowait != null ? `%${h.cpu_iowait}` : "—", "vmstat ortalaması", lvl(h.cpu_iowait, t.iowait_warn_pct, 999)),
+    v("Hatalı SSH", fmtNum(h.ssh_failures), "son 24 saat", lvl(h.ssh_failures, t.ssh_fail_warn, 1e9)),
+    v("Güvenlik güncel.", h.security_updates ?? 0, m.reboot_required ? "reboot bekliyor" : "RHSA", h.security_updates ? "v-warn" : ""),
+  ].join("");
+  $("#sdVitals").classList.remove("hidden");
 }
 
 function renderServer() {
   const s = State.sd.snap, a = s.analysis, last = State.sd.hist[0];
   const counts = ["critical", "high", "medium", "low"].map((k) => [k, a.anomalies.filter((x) => x.severity === k).length]).filter(([, n]) => n);
+  const p1 = a.action_items.filter((x) => x.priority === "P1").length;
   const tabs = [
-    ["actions", `Aksiyonlar (${a.action_items.length})`], ["anomalies", `Anomaliler (${a.anomalies.length})`],
-    ["rules", `Kural bulguları (${s.findings.length})`], ["metrics", "Metrikler"], ["trend", "Trend"], ["raw", "Ham loglar"], ["ai", "AI çağrısı"],
+    ["actions", `Aksiyonlar · ${a.action_items.length}`], ["anomalies", `Anomaliler · ${a.anomalies.length}`],
+    ["rules", `Kural bulguları · ${s.findings.length}`], ["metrics", "Metrikler"], ["trend", "Trend"], ["raw", "Ham loglar"], ["ai", "AI çağrısı"],
   ];
   $("#sdBody").innerHTML = `
     ${last && last.runId !== s.run.id && !State.sd.run && last.collect === "failed" ? `<div class="alert danger"><b>Son toplama başarısız (${esc(fmtTime(last.time))}):</b> ${esc(last.error)} — aşağıda son başarılı veri gösteriliyor.</div>` : ""}
     <div class="card">
       <div class="result-head">
-        ${gauge(a.health_score)}
+        ${gauge(a.health_score, { size: 120, stroke: 10 })}
         <div>
-          <div>${statusTag(a.status)} <span class="engine">${esc(ENGINE_LABEL[a.engine] || a.engine)}${a.model ? ` · ${esc(a.model)}` : ""} · ${esc(fmtTime(s.collectedAt))} · ${esc(TRIGGER_LABEL[s.run.trigger] || "")}</span></div>
-          <h2>${esc(s.server)}</h2>
+          <div class="engine">${icon(a.engine === "genai" ? "sparkles" : "shield", "i i-xs")} ${esc(ENGINE_LABEL[a.engine] || a.engine)}${a.model ? ` · ${esc(a.model)}` : ""} · ${esc(fmtTime(s.collectedAt))} · ${esc(TRIGGER_LABEL[s.run.trigger] || "")}</div>
+          <h2>${p1 ? `${p1} acil aksiyon` : a.action_items.length ? "Acil aksiyon yok" : "Sorun bulunmadı"}</h2>
           <p class="summary">${esc(a.summary)}</p>
-          <div class="sev-summary">${counts.map(([k, n]) => `${sevTag(k)} <b>${n}</b>`).join(" ")}</div>
+          <div class="sev-summary">${counts.map(([k, n]) => `${sevTag(k)}<b class="mono">${n}</b>`).join(" ")}</div>
         </div>
       </div>
       ${a.aiError ? `<div class="alert danger"><b>GenAI analizi yapılamadı</b>, kural motoru sonucu gösteriliyor: ${esc(a.aiError)}</div>` : ""}
@@ -210,8 +342,13 @@ function renderServer() {
       <div class="tabs" id="sdTabs">${tabs.map(([k, l]) => `<button data-tab="${k}" class="${State.sd.tab === k ? "on" : ""}">${esc(l)}</button>`).join("")}</div>
       <div id="sdPane"></div>
     </div>`;
+  animateGauges($("#sdBody"));
   renderServerTab();
 }
+
+/** Komut listesini terminal bloğu olarak gösterir; '#' ile başlayan satırlar açıklamadır */
+const termBlock = (cmds, i) => `<div class="fix"><pre class="term">${cmds.map((c) =>
+  /^\s*#/.test(c) ? `<span class="cm">${esc(c)}</span>` : `<span class="ln">${esc(c)}</span>`).join("")}</pre><button class="btn link sm copy" data-copy-cmd="${i}">Kopyala</button></div>`;
 
 function renderServerTab() {
   const s = State.sd.snap, a = s.analysis, pane = $("#sdPane");
@@ -222,21 +359,21 @@ function renderServerTab() {
         <div class="finding-top">${prioTag(x.priority)} <span class="finding-title">${esc(x.title)}</span>
           <span class="finding-meta"><span>${esc(x.owner)}</span>${x.timeframe && x.timeframe !== "-" ? `<span>${esc(x.timeframe)}</span>` : ""}${x.related_anomalies.length ? `<span>${esc(x.related_anomalies.join(", "))}</span>` : ""}</span></div>
         ${x.rationale && x.rationale !== "-" ? `<p>${esc(x.rationale)}</p>` : ""}
-        ${x.commands.length ? `<div class="fix"><pre>${esc(x.commands.join("\n"))}</pre><button class="btn link sm copy" data-copy-cmd="${i}">Kopyala</button></div>` : ""}
+        ${x.commands.length ? termBlock(x.commands, i) : ""}
         <dl class="kv sm-kv">
           ${x.verification && x.verification !== "-" ? `<dt>Doğrulama</dt><dd>${esc(x.verification)}</dd>` : ""}
           ${x.risk && x.risk !== "-" ? `<dt>Risk</dt><dd>${esc(x.risk)}</dd>` : ""}
         </dl>
-      </div>`).join("") || `<div class="empty"><h4>Aksiyon yok</h4><p>Bu sunucuda anomali bulunmadı.</p></div>`;
+      </div>`).join("") || `<div class="empty"><div class="empty-ill">${icon("check")}</div><h4>Aksiyon yok</h4><p>Bu sunucuda anomali bulunmadı.</p></div>`;
     pane.querySelectorAll("[data-copy-cmd]").forEach((b) => (b.onclick = () => copyText(a.action_items[+b.dataset.copyCmd].commands.join("\n"))));
   } else if (t === "anomalies") {
     pane.innerHTML = a.anomalies.map((x) => `
       <div class="finding ${esc(x.severity)}">
-        <div class="finding-top">${sevTag(x.severity)} <span class="mono">${esc(x.id)}</span> <span class="finding-title">${esc(x.title)}</span>
+        <div class="finding-top">${sevTag(x.severity)} <span class="mono muted">${esc(x.id)}</span> <span class="finding-title">${esc(x.title)}</span>
           <span class="finding-meta"><span>${esc(x.category)}</span></span></div>
         ${x.evidence ? `<pre class="code-block mt-s">${esc(x.evidence)}</pre>` : ""}
         ${x.probable_cause && x.probable_cause !== "-" ? `<p><b>Olası neden:</b> ${esc(x.probable_cause)}</p>` : ""}
-      </div>`).join("") || `<div class="empty"><h4>Anomali yok</h4></div>`;
+      </div>`).join("") || `<div class="empty"><div class="empty-ill">${icon("check")}</div><h4>Anomali yok</h4></div>`;
   } else if (t === "rules") {
     pane.innerHTML = `<p class="muted sm">Deterministik eşik kontrolleri (Ayarlar → Kural motoru eşikleri). GenAI'a kanıt olarak gönderilir.</p>
       <div class="table-wrap"><table class="table"><tr><th>Önem</th><th>Kategori</th><th>Bulgu</th><th>Kanıt</th></tr>${
@@ -253,7 +390,7 @@ function renderServerTab() {
         <dt>Toplama</dt><dd>${esc(fmtTime(s.collectedAt))} · ${fmtDur(s.durationMs)}</dd>
         <dt>Önceki toplama</dt><dd>${s.previous ? esc(fmtTime(s.previous.collectedAt)) : "—"}</dd>
       </dl>
-      ${a.logId ? `<div class="toolbar mt"><button class="btn secondary" id="sdOpenLog">GPT'ye gönderilen istek ve cevabı göster</button></div>` :
+      ${a.logId ? `<div class="toolbar mt"><button class="btn" id="sdOpenLog">${icon("file")}GPT'ye gönderilen istek ve cevabı göster</button></div>` :
         `<p class="muted">Bu analiz GenAI kullanılmadan (kural motoru) üretildi.</p>`}`;
     if (a.logId) $("#sdOpenLog").onclick = () => showLog(a.logId);
   }
@@ -332,6 +469,7 @@ function lineChart(el, data, { label, fixedMax }) {
     <g class="grid">${ticks.map((v) => `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/>`).join("")}</g>
     <g class="axis">${ticks.map((v) => `<text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${fmtK(v)}</text>`).join("")}
       ${data.map((d, i) => (i % labelEvery === 0 || i === data.length - 1 ? `<text x="${x(i)}" y="${H - 6}" text-anchor="middle">${esc(new Date(d.t).toLocaleDateString("tr-TR", { day: "2-digit", month: "2-digit" }))}</text>` : "")).join("")}</g>
+    ${path.length === data.length ? `<path class="area" d="M${x(0)},${y(0)} L${path.join(" L")} L${x(data.length - 1)},${y(0)} Z"/>` : ""}
     <polyline class="line" points="${path.join(" ")}"/>
     ${data.map((d, i) => (d.v == null ? "" : `<circle class="dot" cx="${x(i)}" cy="${y(d.v)}" r="4"/>`)).join("")}
     <line class="xhair hidden" y1="${T}" y2="${H - B}"/>
@@ -430,7 +568,7 @@ function renderActiveRun(r) {
   if (!r || r.status !== "running") { el.innerHTML = ""; return; }
   const done = r.servers.filter((s) => s.collect === "failed" || !["pending", "running"].includes(s.analysis)).length;
   el.innerHTML = `<div class="active-run">
-    <div class="card-head"><h3>Sürüyor: ${esc(TRIGGER_LABEL[r.trigger] || r.trigger)} <span class="muted sm">${esc(r.id)}</span></h3><span class="muted sm">${done} / ${r.servers.length}</span></div>
+    <div class="card-head"><h3><span class="pulse"></span>Sürüyor: ${esc(TRIGGER_LABEL[r.trigger] || r.trigger)} <span class="muted sm">${esc(r.id)}</span></h3><span class="muted sm">${done} / ${r.servers.length}</span></div>
     <div class="progress"><i style="width:${(done / r.servers.length) * 100}%"></i></div>
     <div class="run-servers">${r.servers.map((s) => { const [l, c] = SERVER_STEP(s); return `<span class="label ${c}" title="${esc(s.error || "")}">${esc(s.name)} · ${l}</span>`; }).join(" ")}</div></div>`;
 }
@@ -1134,6 +1272,7 @@ async function checkHealth() {
   try {
     const h = await Api.health();
     State.health = h;
+    renderNavFoot();
     const g = h.genai;
     setChip($("#aiChip"), h.mode === "demo" ? "warn" : "ok", h.mode === "demo" ? "AI · demo" : `AI · ${g.model || "GPT"}`,
       h.mode === "genai" ? `Token: ${g.tokenHost} · Chat: ${g.chatHost}` : "GenAI bağlantısı tanımlı değil — Ayarlar");
@@ -1145,16 +1284,100 @@ async function checkHealth() {
 /* ================================================================== */
 /*  Olaylar & başlatma                                                 */
 /* ================================================================== */
+/* ================================================================== */
+/*  Tema & komut paleti (Ctrl+K)                                       */
+/* ================================================================== */
+function toggleTheme() {
+  const next = document.documentElement.getAttribute("data-theme") === "light" ? "dark" : "light";
+  document.documentElement.setAttribute("data-theme", next);
+  try { localStorage.setItem("unixai.theme", next); } catch {}
+}
+
+const PAGES = [
+  ["dashboard", "Genel Bakış", "dashboard"], ["runs", "Toplama & Analiz", "refresh"], ["collected", "Gelen Loglar", "logs"],
+  ["ask", "UnixAI'ye Sor", "chat"], ["servers", "Sunucular", "servers"], ["usage", "Token Kullanımı", "chart"],
+  ["logs", "AI Logları", "file"], ["settings", "Ayarlar", "sliders"],
+];
+const Palette = { items: [], sel: 0 };
+
+function paletteItems(q) {
+  q = q.trim().toLowerCase();
+  const servers = (State.overview?.servers || []).map((s) => ({
+    group: "Sunucular", icon: "servers", label: s.name, sub: `${s.host || ""}${s.latest?.score != null ? ` · skor ${s.latest.score}` : ""}`,
+    run: () => (location.hash = `#/server/${encodeURIComponent(s.name)}`), key: `${s.name} ${s.host} ${s.tags.join(" ")}`,
+  }));
+  const pages = PAGES.map(([r, l, i]) => ({ group: "Ekranlar", icon: i, label: l, run: () => (location.hash = `#/${r}`), key: l }));
+  const actions = [
+    { group: "İşlemler", icon: "bolt", label: "Şimdi topla ve analiz et", run: () => startRun("collect") },
+    { group: "İşlemler", icon: "sparkles", label: "Sadece yeniden analiz et", run: () => startRun("reanalyze") },
+    { group: "İşlemler", icon: "flask", label: "Demo veri üret", run: () => startRun("demo") },
+    { group: "İşlemler", icon: "plus", label: "Sunucu ekle", run: () => { location.hash = "#/servers"; setTimeout(() => serverModal(null), 150); } },
+    { group: "İşlemler", icon: "theme", label: "Açık / koyu tema", run: toggleTheme },
+  ].map((x) => ({ ...x, key: x.label }));
+  const all = [...servers, ...pages, ...actions];
+  return q ? all.filter((x) => x.key.toLowerCase().includes(q)) : all;
+}
+
+function renderPalette() {
+  const list = $("#paletteList");
+  let group = "";
+  list.innerHTML = Palette.items.map((x, i) => {
+    const head = x.group !== group ? `<div class="palette-group">${esc((group = x.group))}</div>` : "";
+    return `${head}<div class="palette-item ${i === Palette.sel ? "on" : ""}" data-pi="${i}">${icon(x.icon)}<span>${esc(x.label)}</span>${x.sub ? `<span class="pi-sub">${esc(x.sub)}</span>` : ""}</div>`;
+  }).join("") || `<div class="empty sm">Sonuç yok</div>`;
+  list.querySelector(".palette-item.on")?.scrollIntoView({ block: "nearest" });
+}
+
+function openPalette() {
+  $("#palette").classList.remove("hidden");
+  const inp = $("#paletteInput");
+  inp.value = "";
+  Palette.items = paletteItems("");
+  Palette.sel = 0;
+  renderPalette();
+  setTimeout(() => inp.focus(), 10);
+}
+const closePalette = () => $("#palette").classList.add("hidden");
+
+function runPaletteItem(i) {
+  const x = Palette.items[i];
+  if (!x) return;
+  closePalette();
+  x.run();
+}
+
+function bindPalette() {
+  $("#searchBtn").onclick = openPalette;
+  $("#themeBtn").onclick = toggleTheme;
+  $("#palette").onclick = (e) => {
+    if (e.target.id === "palette") return closePalette();
+    const it = e.target.closest("[data-pi]");
+    if (it) runPaletteItem(+it.dataset.pi);
+  };
+  $("#paletteInput").oninput = (e) => { Palette.items = paletteItems(e.target.value); Palette.sel = 0; renderPalette(); };
+  $("#paletteInput").onkeydown = (e) => {
+    if (e.key === "ArrowDown") { e.preventDefault(); Palette.sel = Math.min(Palette.items.length - 1, Palette.sel + 1); renderPalette(); }
+    if (e.key === "ArrowUp") { e.preventDefault(); Palette.sel = Math.max(0, Palette.sel - 1); renderPalette(); }
+    if (e.key === "Enter") { e.preventDefault(); runPaletteItem(Palette.sel); }
+    if (e.key === "Escape") closePalette();
+  };
+  addEventListener("keydown", (e) => {
+    const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName);
+    if ((e.key === "k" || e.key === "K") && (e.ctrlKey || e.metaKey)) { e.preventDefault(); openPalette(); }
+    else if (e.key === "/" && !typing) { e.preventDefault(); openPalette(); }
+  });
+}
+
 function bindEvents() {
   addEventListener("hashchange", route);
   $("#menuBtn").onclick = () => $("#sidebar").classList.toggle("open");
   $("#modalClose").onclick = closeModal;
   $("#modal").onclick = (e) => e.target.id === "modal" && closeModal();
-  addEventListener("keydown", (e) => e.key === "Escape" && closeModal());
+  addEventListener("keydown", (e) => { if (e.key === "Escape") { closeModal(); closePalette(); } });
 
   document.addEventListener("click", (e) => {
-    const tr = e.target.closest("tr[data-href]");
-    if (tr) { closeModal(); location.hash = tr.dataset.href; }
+    const tr = e.target.closest("[data-href]");
+    if (tr && !e.target.closest("a, button")) { closeModal(); location.hash = tr.dataset.href; }
     const lg = e.target.closest("tr[data-log]");
     if (lg) showLog(lg.dataset.log);
     const rn = e.target.closest("tr[data-run]");
@@ -1162,7 +1385,29 @@ function bindEvents() {
   });
 
   // genel bakış
-  $("#srvFilter").oninput = renderServerTable;
+  $("#srvFilter").oninput = renderServers;
+  $("#srvStatus").onclick = (e) => {
+    const b = e.target.closest("[data-st]");
+    if (!b) return;
+    State.srvStatus = b.dataset.st;
+    renderServers();
+  };
+  $("#srvView").onclick = (e) => {
+    const b = e.target.closest("[data-view]");
+    if (!b) return;
+    State.srvView = b.dataset.view;
+    try { localStorage.setItem("unixai.srvView", State.srvView); } catch {}
+    renderServers();
+  };
+  $("#srvTiles").addEventListener("keydown", (e) => {
+    const t = e.target.closest(".tile[data-href]");
+    if (t && e.key === "Enter") location.hash = t.dataset.href;
+  });
+  $$(".settings-nav a").forEach((a) => (a.onclick = (e) => {
+    e.preventDefault();
+    document.getElementById(a.dataset.anchor)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }));
+  bindPalette();
   $("#dashCollect").onclick = (e) => startRun("collect", e.target);
   $("#dashReanalyze").onclick = (e) => startRun("reanalyze", e.target);
 
@@ -1324,6 +1569,7 @@ function bindEvents() {
 }
 
 (async function init() {
+  hydrateIcons();
   $("#contract").textContent = API_CONTRACT;
   $("#settingsForm").elements.userName.value = Settings.get().userName;
   bindEvents();
@@ -1345,5 +1591,5 @@ function bindEvents() {
     if (State.overview.lastRun?.status === "running") pollRun(State.overview.lastRun.id);
   } catch {}
   route();
-  askUserName();
+
 })();

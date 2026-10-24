@@ -79,6 +79,10 @@ needs-restarting, top prosesler, zombie. Root değilse ayrıcalıklı komutlar `
 | **AI Logları** | Token servisi ve GPT istek/cevapları (maskeli) |
 | **Ayarlar** | GenAI bağlantısı, SSH, zamanlama, eşikler, token limitleri, sistem mesajı |
 
+Arayüz koyu (varsayılan) ve açık temayı destekler (üst çubuktaki ay simgesi veya `?theme=light`).
+**Ctrl+K** (veya `/`) ile sunucu, ekran ve işlem araması açılır; genel bakışta sunucular kart veya tablo olarak,
+duruma göre filtrelenerek görüntülenebilir. Aksiyon komutları terminal bloğunda tek tıkla kopyalanır.
+
 ## Zamanlama
 
 Her gün *Ayarlar → Zamanlama*'daki saatte (varsayılan 06:30, `USAGE_TIMEZONE`) tüm etkin sunucular toplanır.
