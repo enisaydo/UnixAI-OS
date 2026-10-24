@@ -589,3 +589,11 @@ svg.i.i-xs { width: 13px; height: 13px; vertical-align: -2px; }
 .panel-grid .card { margin-bottom: 18px; }
 .inline { white-space: nowrap; }
 @media (max-width: 860px) { .page-head > .toolbar { flex-wrap: wrap; } }
+
+/* ---- MorpheusAI köprüsü ---- */
+.action-foot { display: flex; justify-content: flex-end; margin-top: 10px; }
+.action-foot:empty { display: none; }
+.rem-chip { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; padding: 4px 10px; border: 1px solid var(--border-strong); border-radius: 999px; color: var(--text-2); background: var(--surface); }
+.rem-chip:hover { border-color: var(--primary); text-decoration: none; color: var(--text); }
+.rem-chip .mono { color: var(--muted); }
+.spinner.xs { width: 12px; height: 12px; border-width: 2px; display: inline-block; }

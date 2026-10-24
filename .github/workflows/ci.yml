@@ -22,7 +22,7 @@ jobs:
           python-version: ${{ matrix.python }}
       - name: Sözdizimi kontrolü
         run: |
-          python -m py_compile server.py unixai/*.py scripts/*.py
+          python -m py_compile server.py unixai/*.py scripts/*.py mcp/*.py
           bash -n deploy/install.sh deploy/podman-up.sh deploy/target-setup.sh
       - name: Smoke test
         run: python scripts/smoke_test.py

@@ -62,6 +62,12 @@ const Api = (() => {
 
     chat: ({ messages, context }) => request("/chat", { method: "POST", body: { messages, context } }),
 
+    morpheus: () => request("/integrations/morpheus"),
+    saveMorpheus: (m) => request("/integrations/morpheus", { method: "POST", body: m }),
+    testMorpheus: () => request("/integrations/morpheus/test", { method: "POST", body: {} }),
+    remediations: (server) => request(`/remediations${server ? `?server=${enc(server)}` : ""}`),
+    sendRemediation: (server, actionIndex, run) => request("/remediations", { method: "POST", body: { server, actionIndex, run } }),
+    remediation: (id) => request(`/remediations/${enc(id)}`),
     connection: () => request("/connection"),
     saveConnection: (c) => request("/connection", { method: "POST", body: c }),
     testConnection: (step) => request("/connection/test", { method: "POST", body: { step } }),
@@ -94,6 +100,10 @@ GET  /api/runs/:id               → Run
 POST /api/runs                   ← { mode: "collect"|"reanalyze"|"demo", servers?: string[], ai?: boolean }  → 202 Run
 GET  /api/collected              → { sections[], servers[]: { name, sectionLines: { <bölüm>: satır } } }
 POST /api/chat                   ← { messages: {role, content}[], context?: { server } | { fleet: true } } → { reply }
+GET|POST /api/integrations/morpheus   ← { url, token, targetField: name|host, autoSend, autoSendPriority }  (MorpheusAI köprüsü)
+POST /api/remediations           ← { server, actionIndex }  → MorpheusAI'de standartlara uygun düzeltme playbook'u
+GET  /api/remediations[?server=] → gönderilen düzeltmeler ve MorpheusAI'deki güncel durum
+     Servisler arası / MCP: Authorization: Bearer <UNIXAI_API_TOKEN>
 GET  /api/connection             → GenAI bağlantısı (gizli alanlar maskeli)
 POST /api/connection             ← { tms: { url, method, body, headers[] }, chat: { url, model, modelField, headers[], bodyExtra }, insecureTls, timeoutMs }
 POST /api/connection/test        ← { step: "token"|"chat" }   → { token: { ok }, chat?: { ok, reply } }

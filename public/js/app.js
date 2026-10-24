@@ -278,8 +278,9 @@ async function loadServer(name, run) {
   $("#sdVitals").classList.add("hidden");
   $("#sdAsk").href = `#/ask/${encodeURIComponent(name)}`;
   $("#sdBody").innerHTML = loadingView("Yükleniyor…");
-  const [snap, hist] = await Promise.allSettled([Api.snapshot(name, run), Api.serverHistory(name)]);
+  const [snap, hist, rems] = await Promise.allSettled([Api.snapshot(name, run), Api.serverHistory(name), Api.remediations(name)]);
   State.sd.hist = hist.status === "fulfilled" ? hist.value : [];
+  State.sd.rems = rems.status === "fulfilled" ? rems.value.items : [];
   $("#sdRun").innerHTML = State.sd.hist.map((h) => `<option value="${esc(h.runId)}">${esc(fmtTime(h.time))} · ${h.collect === "failed" ? "ulaşılamadı" : `skor ${h.score ?? "—"}`}</option>`).join("");
   if (snap.status === "rejected") {
     const last = State.sd.hist[0];
@@ -323,7 +324,7 @@ function renderServer() {
   const p1 = a.action_items.filter((x) => x.priority === "P1").length;
   const tabs = [
     ["actions", `Aksiyonlar · ${a.action_items.length}`], ["anomalies", `Anomaliler · ${a.anomalies.length}`],
-    ["rules", `Kural bulguları · ${s.findings.length}`], ["metrics", "Metrikler"], ["trend", "Trend"], ["raw", "Ham loglar"], ["ai", "AI çağrısı"],
+    ["rules", `Kural bulguları · ${s.findings.length}`], ["rems", `Düzeltmeler · ${(State.sd.rems || []).length}`], ["metrics", "Metrikler"], ["trend", "Trend"], ["raw", "Ham loglar"], ["ai", "AI çağrısı"],
   ];
   $("#sdBody").innerHTML = `
     ${last && last.runId !== s.run.id && !State.sd.run && last.collect === "failed" ? `<div class="alert danger"><b>Son toplama başarısız (${esc(fmtTime(last.time))}):</b> ${esc(last.error)} — aşağıda son başarılı veri gösteriliyor.</div>` : ""}
@@ -360,12 +361,19 @@ function renderServerTab() {
           <span class="finding-meta"><span>${esc(x.owner)}</span>${x.timeframe && x.timeframe !== "-" ? `<span>${esc(x.timeframe)}</span>` : ""}${x.related_anomalies.length ? `<span>${esc(x.related_anomalies.join(", "))}</span>` : ""}</span></div>
         ${x.rationale && x.rationale !== "-" ? `<p>${esc(x.rationale)}</p>` : ""}
         ${x.commands.length ? termBlock(x.commands, i) : ""}
+        <div class="action-foot">${remButton(i, x.title)}</div>
         <dl class="kv sm-kv">
           ${x.verification && x.verification !== "-" ? `<dt>Doğrulama</dt><dd>${esc(x.verification)}</dd>` : ""}
           ${x.risk && x.risk !== "-" ? `<dt>Risk</dt><dd>${esc(x.risk)}</dd>` : ""}
         </dl>
       </div>`).join("") || `<div class="empty"><div class="empty-ill">${icon("check")}</div><h4>Aksiyon yok</h4><p>Bu sunucuda anomali bulunmadı.</p></div>`;
     pane.querySelectorAll("[data-copy-cmd]").forEach((b) => (b.onclick = () => copyText(a.action_items[+b.dataset.copyCmd].commands.join("\n"))));
+    pane.querySelectorAll("[data-send-rem]").forEach((b) => (b.onclick = () => sendRemediation(+b.dataset.sendRem, b)));
+  } else if (t === "rems") {
+    pane.innerHTML = remsPane();
+    $("#remReload").onclick = async () => {
+      try { State.sd.rems = (await Api.remediations(State.sd.name)).items; renderServer(); } catch (e) { toast(e.message, true); }
+    };
   } else if (t === "anomalies") {
     pane.innerHTML = a.anomalies.map((x) => `
       <div class="finding ${esc(x.severity)}">
@@ -1095,6 +1103,7 @@ const headerValues = (root) => [...root.querySelectorAll(".hdr-row")].map((r) =>
 
 async function loadSettingsPage() {
   loadLimits();
+  loadMorpheus();
   loadPrompts();
   try {
     const [c, s] = await Promise.all([Api.connection(), Api.settings()]);
@@ -1368,6 +1377,73 @@ function bindPalette() {
   });
 }
 
+/* ================================================================== */
+/*  MorpheusAI köprüsü (düzeltme playbook'ları)                         */
+/* ================================================================== */
+const REM_STATUS = {
+  generated: ["Onay bekliyor", "gold"], approved: ["Onaylı", "blue"], check_running: ["Check çalışıyor", "blue"],
+  check_ok: ["Check başarılı", "green"], check_failed: ["Check hatalı", "red"], running: ["Uygulanıyor", "blue"],
+  applied: ["Uygulandı", "green"], failed: ["Hatalı", "red"], rejected: ["Reddedildi", ""],
+};
+const remTag = (s) => { const [l, c] = REM_STATUS[s] || [s || "—", ""]; return `<span class="label ${c}">${esc(l)}</span>`; };
+const morConfigured = () => Boolean(State.health?.morpheus?.configured);
+
+/** Aksiyon kartındaki MorpheusAI düğmesi / durum rozeti */
+function remButton(i, title) {
+  const rec = (State.sd.rems || []).find((r) => r.actionIndex === i && r.title === title && r.runId === State.sd.snap?.run?.id)
+    || (State.sd.rems || []).find((r) => r.title === title);
+  if (rec) return `<a class="rem-chip" href="${esc(rec.url)}" target="_blank" rel="noopener" title="MorpheusAI'de aç">${icon("bolt", "i i-xs")} MorpheusAI ${remTag(rec.status)}${rec.score != null ? `<span class="mono">uyum ${rec.score}</span>` : ""}</a>`;
+  if (!morConfigured()) return "";
+  return `<button class="btn sm" data-send-rem="${i}">${icon("bolt")}MorpheusAI'ye gönder</button>`;
+}
+
+async function sendRemediation(i, btn) {
+  btn.disabled = true;
+  btn.innerHTML = `<span class="spinner xs"></span> Playbook üretiliyor…`;
+  try {
+    const r = await Api.sendRemediation(State.sd.name, i, State.sd.snap.run.id);
+    toast(`MorpheusAI playbook'u üretti (uyum ${r.score ?? "—"}) — onay MorpheusAI'de`);
+    State.sd.rems = [r, ...(State.sd.rems || [])];
+    renderServer();
+  } catch (e) {
+    toast(e.message, true);
+    btn.disabled = false;
+    btn.innerHTML = `${icon("bolt")}MorpheusAI'ye gönder`;
+  }
+}
+
+function remsPane() {
+  const rows = State.sd.rems || [];
+  return `<div class="toolbar"><span class="muted sm">Bu sunucu için MorpheusAI'ye gönderilen aksiyonlar. Playbook inceleme, onay ve AAP'de çalıştırma MorpheusAI → Düzeltmeler ekranındadır.</span>
+      <span class="toolbar-spacer"></span><button class="btn sm" id="remReload">${icon("refresh")}Durumları yenile</button></div>
+    <div class="table-wrap"><table class="table"><tr><th>Gönderim</th><th>Aksiyon</th><th>Durum</th><th>Uyum</th><th>Son AAP işi</th><th>AAP hedefi</th><th></th></tr>
+    ${rows.map((r) => `<tr><td class="t-sub">${esc(fmtTime(r.sentAt))}<br>${esc(r.sentBy || "")}</td>
+      <td>${r.priority ? prioTag(r.priority) : ""} ${esc(r.title)}${r.refreshError ? `<div class="t-sub status-err">${esc(r.refreshError)}</div>` : ""}</td>
+      <td>${remTag(r.status)}</td><td>${r.score != null ? scoreBar(r.score) : "—"}</td>
+      <td class="t-sub">${r.lastJob ? `#${esc(r.lastJob.id)} ${esc(r.lastJob.mode)} · ${esc(r.lastJob.status)}` : "—"}</td>
+      <td class="mono">${esc(r.target || "")}</td>
+      <td><a class="btn link sm" href="${esc(r.url)}" target="_blank" rel="noopener">MorpheusAI'de aç</a></td></tr>`).join("") ||
+      `<tr><td colspan="7" class="muted">Henüz gönderilmedi. Aksiyonlar sekmesinde <b>MorpheusAI'ye gönder</b>'e basın.</td></tr>`}</table></div>`;
+}
+
+async function loadMorpheus() {
+  try {
+    const m = await Api.morpheus();
+    fillForm($("#morForm"), m);
+    $("#flowMor").classList.toggle("ok", m.configured);
+    $("#flowMorHost").textContent = m.url ? new URL(m.url).host : "tanımlı değil";
+    $("#morInfo").textContent = m.updatedAt ? `Son kayıt: ${fmtTime(m.updatedAt)}${m.updatedBy ? ` · ${m.updatedBy}` : ""}` : "";
+  } catch (e) { $("#morResult").innerHTML = errorView(e); }
+}
+
+async function saveMorpheus() {
+  const m = await Api.saveMorpheus(readForm($("#morForm")));
+  fillForm($("#morForm"), m);
+  checkHealth();
+  loadMorpheus();
+  return m;
+}
+
 function bindEvents() {
   addEventListener("hashchange", route);
   $("#menuBtn").onclick = () => $("#sidebar").classList.toggle("open");
@@ -1515,6 +1591,24 @@ function bindEvents() {
     catch (err) { $("#connResult").innerHTML = errorView(err); }
   };
   $("#connTestToken").onclick = (e) => testConnection("token", e.target);
+  $("#morForm").onsubmit = async (e) => {
+    e.preventDefault();
+    try { await saveMorpheus(); toast("MorpheusAI entegrasyonu kaydedildi"); $("#morResult").innerHTML = ""; }
+    catch (err) { $("#morResult").innerHTML = errorView(err); }
+  };
+  $("#morTest").onclick = async (e) => {
+    const b = e.currentTarget, out = $("#morResult");
+    b.disabled = true;
+    try {
+      await saveMorpheus();
+      out.innerHTML = loadingView("MorpheusAI'ye bağlanılıyor…");
+      const r = await Api.testMorpheus();
+      out.innerHTML = r.ok
+        ? `<div class="alert info"><b class="status-ok">✓ MorpheusAI bağlantısı başarılı</b> · mod: ${esc(r.mode)} · AAP: ${r.aap ? `bağlı (runner #${esc(r.runnerTemplate || "tanımsız")})` : "bağlı değil"} · ${r.requireCheck ? "önce check zorunlu" : "check opsiyonel"} · ${r.autoApprove ? "otomatik onay AÇIK" : "onay gerekli"} · ${r.remediations} kayıt</div>`
+        : `<div class="alert danger"><b>✕ Bağlanılamadı:</b> ${esc(r.error)}</div>`;
+    } catch (err) { out.innerHTML = errorView(err); }
+    finally { b.disabled = false; }
+  };
   $("#connTestChat").onclick = (e) => testConnection("chat", e.target);
   $("#sshForm").onsubmit = async (e) => {
     e.preventDefault();

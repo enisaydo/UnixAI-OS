@@ -83,6 +83,11 @@ def fill(s: str, token: str = "", as_json: bool = False) -> str:
     return _PLACEHOLDER.sub(rep, str(s))
 
 
+def clean_token(v) -> str:
+    """'Bearer xxx', 'Bearer: xxx', 'bearer:xxx' → 'xxx'"""
+    return re.sub(r"^Bearer\s*:?\s*", "", str(v or "").strip(), flags=re.I).strip()
+
+
 def get_path(obj, path: str):
     for k in path.split("."):
         if obj is None:
@@ -124,12 +129,15 @@ def _fetch_token() -> str:
     if res["status"] >= 400:
         raise GenAIError(f"Token isteği başarısız (HTTP {res['status']}): {res['text'][:300]}")
     j = res["json"]
-    from_body = get_path(j, t["tokenPath"]) if t.get("tokenPath") else next(
-        (v for v in (get_path(j, p) for p in TOKEN_CANDIDATES) if isinstance(v, str)), None)
-    token = re.sub(r"^Bearer\s+", "", str(from_body or res["headers"].get(t["tokenHeader"]) or ""), flags=re.I).strip()
+    # Token kaynağı: auto (JSON yolu > yanıt header'ı > gövdedeki bilinen alanlar) | header | body
+    src = t.get("tokenSource") or "auto"
+    from_header = None if src == "body" else res["headers"].get(t["tokenHeader"])
+    from_path = get_path(j, t["tokenPath"]) if src != "header" and t.get("tokenPath") else None
+    from_body = None if src == "header" else next((v for v in (get_path(j, p) for p in TOKEN_CANDIDATES) if isinstance(v, str)), None)
+    token = clean_token(from_path or (from_body if src == "body" else from_header or from_body))
     if not token:
-        raise GenAIError(f"Token yanıtında token bulunamadı (gövde veya '{t['tokenHeader']}' header'ı). Ayarlar'da 'Token alanı (JSON yolu)' "
-                         f"veya 'Token header'ı' girin. Yanıt: {res['text'][:300] or '(boş gövde)'}")
+        raise GenAIError(f"Token yanıtında token bulunamadı (kaynak: {src}; gövde veya '{t['tokenHeader']}' header'ı). Ayarlar'da 'Token kaynağı', "
+                         f"'Token alanı (JSON yolu)' veya 'Token header'ı' alanlarını kontrol edin. Yanıt: {res['text'][:300] or '(boş gövde)'}")
     exp_raw = get_path(j, t["expiresPath"]) if t.get("expiresPath") else next(
         (v for v in (get_path(j, p) for p in EXPIRES_CANDIDATES) if v is not None), None)
     try:

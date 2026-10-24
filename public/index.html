@@ -248,6 +248,7 @@
         </div>
         <nav class="settings-nav">
           <a href="#/settings" data-anchor="setGenai">GenAI bağlantısı</a>
+          <a href="#/settings" data-anchor="setMorpheus">MorpheusAI</a>
           <a href="#/settings" data-anchor="setSsh">SSH &amp; zamanlama</a>
           <a href="#/settings" data-anchor="setThr">Eşikler</a>
           <a href="#/settings" data-anchor="setLimits">Token limitleri</a>
@@ -280,6 +281,14 @@
                 <label>Gövde (body)
                   <textarea class="input mono" name="tms.body" rows="7" spellcheck="false" placeholder='{"client_id":"…","client_secret":"…","grant_type":"password","username":"…","password":"…"}'></textarea>
                   <small>JSON veya <code>a=b&amp;c=d</code>. Gizli alanlar kayıttan sonra <code>••••••••</code> görünür; değiştirmezseniz eski değer korunur.</small>
+                </label>
+                <label>Token nereden alınsın
+                  <select class="input" name="tms.tokenSource">
+                    <option value="auto">Otomatik (JSON yolu → yanıt header'ı → gövde)</option>
+                    <option value="header">Yanıt header'ı (ör. authorization: Bearer: …)</option>
+                    <option value="body">Yanıt gövdesi (JSON)</option>
+                  </select>
+                  <small>"Bearer" / "Bearer:" öneki otomatik temizlenir. Header adı Gelişmiş bölümünde (varsayılan <code>authorization</code>).</small>
                 </label>
                 <div class="hdr-editor" data-headers="tms"></div>
                 <details class="adv">
@@ -329,6 +338,45 @@
               <button class="btn" type="button" id="connTestChat">Kaydet + GPT'ye test mesajı</button>
             </div>
             <div id="connResult"></div>
+          </form>
+        </div>
+
+        <div class="card anchor" id="setMorpheus">
+          <div class="card-head">
+            <h3><svg class="i" data-icon="bolt"></svg>MorpheusAI entegrasyonu</h3>
+            <span class="muted sm" id="morInfo"></span>
+          </div>
+          <div class="flow">
+            <div class="flow-step ok"><b>1</b><span>UnixAI bulgusu</span><small>aksiyon + kanıt + OS</small></div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-step" id="flowMor"><b>2</b><span>MorpheusAI playbook</span><small id="flowMorHost">tanımlı değil</small></div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-step"><b>3</b><span>Onay + AAP</span><small>önce check, sonra uygulama</small></div>
+          </div>
+          <form id="morForm" class="form">
+            <div class="grid-2">
+              <label>MorpheusAI adresi<input class="input mono" name="url" placeholder="http://morpheus.kurum.local:3000" /></label>
+              <label>API token<input class="input mono" name="token" type="password" autocomplete="new-password" placeholder="MorpheusAI .env → MORPHEUS_API_TOKEN" />
+                <small>Kayıttan sonra maskeli görünür; değiştirmezseniz eski değer korunur.</small></label>
+              <label>AAP envanterindeki host adı
+                <select class="input" name="targetField">
+                  <option value="name">UnixAI sunucu adı (ör. rhel-db01)</option>
+                  <option value="host">Sunucu adresi (IP / FQDN)</option>
+                </select>
+                <small>MorpheusAI playbook'u AAP'de bu değerle <code>limit</code> vererek çalıştırır.</small></label>
+              <div class="form">
+                <label class="check"><input type="checkbox" name="autoSend" /> Toplama bitince aksiyonları otomatik gönder</label>
+                <label>Otomatik gönderilecek öncelik
+                  <select class="input" name="autoSendPriority"><option value="P1">Yalnızca P1</option><option value="P2">P1 ve P2</option></select>
+                  <small>Aynı sunucu + aksiyon 24 saat içinde tekrar gönderilmez. Gerçek uygulama her zaman MorpheusAI'de onay ister.</small></label>
+                <label class="check"><input type="checkbox" name="insecureTls" /> Sertifika doğrulamasını kapat</label>
+              </div>
+            </div>
+            <div class="toolbar">
+              <button class="btn primary" type="submit">Kaydet</button>
+              <button class="btn" type="button" id="morTest">Kaydet + bağlantıyı test et</button>
+            </div>
+            <div id="morResult"></div>
           </form>
         </div>
 

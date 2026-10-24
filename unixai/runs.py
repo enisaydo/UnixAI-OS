@@ -231,6 +231,12 @@ def _finish(run: dict, results: list, use_ai: bool) -> None:
         run["status"] = "failed" if failed == len(run["servers"]) else "partial" if failed else "done"
         run["finishedAt"] = iso_now()
         _save_run(run)
+    if run["trigger"] in ("manual", "schedule"):
+        try:
+            from . import morpheus
+            morpheus.auto_send(results, run["user"])
+        except Exception as e:  # köprü hatası toplamayı bozmasın
+            print(f"[morpheus] otomatik gönderim hatası: {e}", flush=True)
 
 
 def _register(run: dict) -> None:

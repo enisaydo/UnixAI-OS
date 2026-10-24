@@ -46,10 +46,27 @@ Podman ile: `./deploy/podman-up.sh --systemd` (host'taki `/root/.ssh` container'
 | Gelişmiş | token/süre JSON yolu, token header'ı, Basic auth, yetki header'ı/öneki, cevap yolu |
 
 - **Kaydet + token al** ve **Kaydet + GPT'ye test mesajı** ile anında doğrulanır; istek/cevaplar *AI Logları*'nda görünür.
+- Token yanıt header'ında geliyorsa (`authorization: Bearer: <token>`) *Token nereden alınsın* → **Yanıt header'ı** seçin; `Bearer` / `Bearer:` öneki temizlenir.
 - Yer tutucular: `{{uuid}}` (her istekte yeni), `{{timestamp}}`, `{{token}}` (chat header'larında), `{{env:İSİM}}`.
 - Gizli alanlar (password, client_secret, client-id, authorization…) tarayıcıya **maskeli** gelir; maskeyi değiştirmeden kaydederseniz eski değer korunur. Sırrı hiç arayüze yazmamak için `.env`'e koyup `{{env:İSİM}}` kullanın.
 - Ayarlar `data/connection.json`'da (0600) saklanır; servis yeniden başlatmaya gerek yoktur. Token cache'lenir, 401/403'te yenilenir.
 - `.env`'de MorpheusAI biçiminde `TMS_*` / `CHAT_*` varsa ilk değerler oradan gelir.
+
+## MorpheusAI ile düzeltme (bulgu → standartlara uygun playbook → AAP)
+
+UnixAI OS bir sunucuda bulgu bulduğunda aksiyonu **MorpheusAI'ye gönderir**; MorpheusAI kurumsal Ansible standartlarına uygun
+bir playbook üretir, standart analizinden geçirir (uyum skoru düşükse ihlalleri modele verip bir kez düzeltir), yönetici onayından sonra
+AAP'deki runner job template'i ile **önce check (dry-run), sonra gerçek** olarak o sunucuda çalıştırır.
+
+1. UnixAI OS → **Ayarlar → MorpheusAI**: adres + `MORPHEUS_API_TOKEN`, AAP envanterindeki host adı (sunucu adı / adres).
+2. Sunucu detayı → **Aksiyonlar** → *MorpheusAI'ye gönder* (veya Ayarlar'da "toplama bitince P1'leri otomatik gönder").
+3. Durum **Düzeltmeler** sekmesinde izlenir; inceleme/onay/çalıştırma MorpheusAI → **Düzeltmeler** ekranındadır.
+4. AAP runner kurulumu: MorpheusAI reposunda `deploy/aap/README.md`.
+
+### MCP
+
+`mcp/unixai_mcp.py` (UnixAI OS) ve MorpheusAI'deki `mcp/morpheus-mcp.js` bir MCP istemcisine (Claude Code / Desktop)
+birlikte eklenince iki sistem araç çağrılarıyla konuşur. Ayrıntılar ve örnek yapılandırma: [`mcp/README.md`](mcp/README.md).
 
 ## Sunucular ve SSH
 

@@ -26,7 +26,7 @@ from unixai.env import ROOT, env, load_env
 load_env()
 
 from unixai import (analyzer, auth, collector, connection, demo, genai, inventory,  # noqa: E402
-                    logger, prompts, runs, settings, usage)
+                    logger, morpheus, prompts, runs, settings, usage)
 from unixai.errors import ApiError  # noqa: E402
 
 PORT = int(env("PORT", "3000") or 3000)
@@ -34,7 +34,21 @@ HOST = env("HOST", "0.0.0.0")
 PUBLIC_DIR = (ROOT / "public").resolve()
 USER_HEADER = env("USER_HEADER").lower()
 PUBLIC_ROUTES = {"POST /api/auth/login", "POST /api/auth/logout", "GET /api/auth/me", "GET /api/health"}
-ADMIN_RE = re.compile(r"^/api/(limits|prompts|connection|settings|servers|runs)(/|$)")
+ADMIN_RE = re.compile(r"^/api/(limits|prompts|connection|settings|servers|runs|integrations)(/|$)")
+# Servisler arası erişim (MCP sunucusu, otomasyon): Authorization: Bearer <UNIXAI_API_TOKEN> (virgülle birden fazla, ≥16 karakter)
+API_TOKENS = [t.strip() for t in env("UNIXAI_API_TOKEN").split(",") if len(t.strip()) >= 16]
+
+
+def api_session(headers):
+    import hashlib
+    import hmac
+    m = re.match(r"^Bearer\s+(.+)$", headers.get("authorization") or "", re.I)
+    if not m or not API_TOKENS:
+        return None
+    given = hashlib.sha256(m.group(1).strip().encode()).digest()
+    if any(hmac.compare_digest(given, hashlib.sha256(t.encode()).digest()) for t in API_TOKENS):
+        return {"username": (headers.get("x-unixai-client") or "api")[:40], "displayName": "API", "isAdmin": True, "isApi": True}
+    return None
 
 SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
@@ -108,7 +122,7 @@ def chat_context(ctx):
 
 def health(deep: bool) -> dict:
     out = {"status": "ok", "mode": mode(), "auth": auth.status(), "genai": genai.status(), "scheduler": runs.scheduler_status(),
-           "servers": len(inventory.list_servers())}
+           "servers": len(inventory.list_servers()), "morpheus": morpheus.status()}
     if deep and mode() == "genai":
         try:
             genai.get_token(force=True)
@@ -191,7 +205,10 @@ class Handler(BaseHTTPRequestHandler):
         qs = {k: v[0] for k, v in parse_qs(url.query).items()}
 
         # ---- Kimlik doğrulama ----
-        session = auth.read_session(self.headers.get("cookie", "")) if auth.is_enabled() else None
+        api = api_session(self.headers)
+        if not api and API_TOKENS and re.match(r"^Bearer\s", self.headers.get("authorization") or "", re.I):
+            return self.send_json(401, {"error": "Geçersiz API token"})
+        session = api or (auth.read_session(self.headers.get("cookie", "")) if auth.is_enabled() else None)
         if route == "POST /api/auth/login":
             if not auth.is_enabled():
                 return self.send_json(400, {"error": "Giriş etkin değil"})
@@ -276,6 +293,29 @@ class Handler(BaseHTTPRequestHandler):
                     out["chat"] = {"ok": False, "error": str(e), "logId": getattr(e, "log_id", None)}
             return j(200, out)
 
+        # ---- MorpheusAI köprüsü ----
+        if route == "GET /api/integrations/morpheus":
+            return j(200, morpheus.view())
+        if route == "POST /api/integrations/morpheus":
+            return j(200, morpheus.save(body, who["user"]))
+        if route == "POST /api/integrations/morpheus/test":
+            try:
+                return j(200, morpheus.test())
+            except ApiError as e:
+                return j(200, {"ok": False, "error": str(e)})
+        if route == "GET /api/remediations":
+            return j(200, {"items": morpheus.list_records(qs.get("server"), refresh_pending=qs.get("refresh") != "0"), "integration": morpheus.status()})
+        if route == "POST /api/remediations":
+            name = str(body.get("server") or "")
+            snap = runs.snapshot(name, body.get("run"))
+            if not snap:
+                return j(404, {"error": "Bu sunucu için analiz yok"})
+            snap["inventory"] = inventory.get(name)
+            idx = body.get("actionIndex")
+            if not isinstance(idx, int):
+                return j(400, {"error": "actionIndex (tam sayı) zorunlu"})
+            return j(201, morpheus.send(snap, idx, who["user"]))
+
         # ---- Ayarlar ----
         if route == "GET /api/settings":
             return j(200, {**settings.get(), "defaults": settings.DEFAULTS})
@@ -322,6 +362,9 @@ class Handler(BaseHTTPRequestHandler):
                     return j(200, {"server": name, "run": s["run"], "collectedAt": s["collectedAt"], "sections": s["sections"],
                                    "stderr": s.get("stderr"), "missing": s.get("missing")})
                 return j(200, {**{k: v for k, v in s.items() if k != "sections"}, "inventory": inventory.get(name)})
+        m = re.match(r"^/api/remediations/([\w-]+)$", path)
+        if method == "GET" and m:
+            return j(200, morpheus.refresh(m.group(1)))
         m = re.match(r"^/api/runs/([^/]+)$", path)
         if method == "GET" and m:
             r = runs.get(unquote(m.group(1)))

@@ -59,7 +59,14 @@ class Gateway(BaseHTTPRequestHandler):
         headers = {k.lower(): v for k, v in self.headers.items()}
         if self.path == "/oauth/token":
             seen["token"].append({"headers": headers, "body": body})
-            return self.reply(200, {"access_token": "tok-123", "expires_in": 3600})
+            b = json.dumps({"result": "OK", "token": "yanlis-token"}).encode()
+            self.send_response(200)
+            self.send_header("content-type", "application/json")
+            self.send_header("authorization", "Bearer: tok-123")
+            self.send_header("expires_in", "3600")
+            self.send_header("content-length", str(len(b)))
+            self.end_headers()
+            return self.wfile.write(b)
         if self.path == "/v1/chat/completions":
             j = json.loads(body)
             seen["chat"].append({"headers": headers, "body": j})
@@ -80,16 +87,78 @@ class Gateway(BaseHTTPRequestHandler):
         self.reply(404, {})
 
 
+morpheus_seen = {"created": [], "auth": []}
+
+
+class FakeMorpheus(BaseHTTPRequestHandler):
+    def log_message(self, *a):
+        pass
+
+    def reply(self, code, obj):
+        b = json.dumps(obj).encode()
+        self.send_response(code)
+        self.send_header("content-type", "application/json")
+        self.send_header("content-length", str(len(b)))
+        self.end_headers()
+        self.wfile.write(b)
+
+    def rec(self, i, body):
+        return {"id": f"rem-{i}", "status": "generated", "server": body["server"], "finding": body["finding"], "title": body["finding"]["title"],
+                "compliance": {"score": 93, "status": "compliant", "findings": []}, "engine": "genai", "runnable": True, "jobs": [], "playbook": "---\n- name: x\n"}
+
+    def do_GET(self):
+        morpheus_seen["auth"].append(self.headers.get("authorization"))
+        if self.headers.get("authorization") != "Bearer morpheus-api-token-123456":
+            return self.reply(401, {"error": "Geçersiz API token"})
+        if self.path == "/api/health":
+            return self.reply(200, {"status": "ok", "mode": "genai"})
+        if self.path.startswith("/api/remediations/"):
+            i = int(self.path.rsplit("-", 1)[1])
+            r = self.rec(i, morpheus_seen["created"][i])
+            r.update(status="check_ok", jobs=[{"id": "77", "mode": "check", "status": "successful"}])
+            return self.reply(200, r)
+        if self.path.startswith("/api/remediations"):
+            return self.reply(200, {"items": [], "config": {"aap": True, "runnerTemplate": "42", "requireCheck": True, "autoApprove": False}})
+        self.reply(404, {})
+
+    def do_POST(self):
+        body = json.loads(self.rfile.read(int(self.headers.get("content-length") or 0)))
+        if self.headers.get("authorization") != "Bearer morpheus-api-token-123456":
+            return self.reply(401, {"error": "Geçersiz API token"})
+        morpheus_seen["created"].append(body)
+        self.reply(201, self.rec(len(morpheus_seen["created"]) - 1, body))
+
+
+def mcp_client(env):
+    p = subprocess.Popen([sys.executable, str(ROOT / "mcp" / "unixai_mcp.py")], env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                         stderr=subprocess.DEVNULL, text=True, encoding="utf-8")
+    ids = [0]
+
+    def rpc(method, params=None):
+        ids[0] += 1
+        p.stdin.write(json.dumps({"jsonrpc": "2.0", "id": ids[0], "method": method, "params": params or {}}) + "\n")
+        p.stdin.flush()
+        return json.loads(p.stdout.readline())
+
+    def notify(method):
+        p.stdin.write(json.dumps({"jsonrpc": "2.0", "method": method}) + "\n")
+        p.stdin.flush()
+
+    return p, rpc, notify
+
+
 def main():
     gw = ThreadingHTTPServer(("127.0.0.1", 3991), Gateway)
     threading.Thread(target=gw.serve_forever, daemon=True).start()
+    mor = ThreadingHTTPServer(("127.0.0.1", 3992), FakeMorpheus)
+    threading.Thread(target=mor.serve_forever, daemon=True).start()
     port = 3990
     base = f"http://127.0.0.1:{port}"
     data_dir = tempfile.mkdtemp(prefix="unixai-test-")
     envs = {**os.environ, "PORT": str(port), "HOST": "127.0.0.1", "UNIXAI_DATA_DIR": data_dir, "AI_LOG_DIR": os.path.join(data_dir, "logs"),
             "ADMIN_USER": "admin", "ADMIN_PASSWORD": "S3cret-test", "LDAP_SERVER": "", "TMS_TOKEN_URL": "", "CHAT_URL": "",
             "UNIXAI_SSH_BIN": sys.executable, "UNIXAI_SSH_PREFIX": json.dumps([str(ROOT / "scripts" / "fake_ssh.py")]),
-            "TEST_TMS_SECRET": "env-secret-xyz", "PYTHONIOENCODING": "utf-8"}
+            "TEST_TMS_SECRET": "env-secret-xyz", "PYTHONIOENCODING": "utf-8", "UNIXAI_API_TOKEN": "unixai-mcp-token-1234567890"}
     app = subprocess.Popen([sys.executable, "server.py"], cwd=ROOT, env=envs, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     cookie = [""]
 
@@ -165,7 +234,8 @@ def main():
         check(tb["password"] == "env-secret-xyz", "{{env:İSİM}} .env değeriyle dolduruldu")
         check(re.match(r"^[0-9a-f-]{36}$", tok["headers"].get("guid", "")) and tok["headers"].get("channel") == "B2B", "token header'ları ({{uuid}}) gönderildi")
         cr = seen["chat"][-1]
-        check(cr["headers"].get("authorization") == "Bearer tok-123" and cr["headers"].get("client-id") == "client-xyz", "chat: Bearer token + header'lar")
+        check(cr["headers"].get("authorization") == "Bearer tok-123" and cr["headers"].get("client-id") == "client-xyz",
+              "token yanıt header'ındaki 'Bearer: <token>' biçiminden alındı (gövdedeki alan yok sayıldı); chat: Bearer + header'lar")
         check(cr["body"].get("model_name") == "gpt-5.5" and cr["body"].get("max_completion_tokens") == 16000, "chat gövdesi: model alanı + ek gövde")
         check("br" not in cr["headers"].get("accept-encoding", ""), "accept-encoding'den br çıkarıldı (stdlib çözemez)")
         check(api("/connection", {**conn, "tms": {**conn["tms"], "url": "ftp://x"}})[0] == 400, "geçersiz URL reddedildi")
@@ -215,6 +285,53 @@ def main():
         rs = api("/servers/srv1/snapshot")[1]
         check(rs["analysis"]["engine"] == "rules" and "limit" in (rs["analysis"].get("aiError") or ""), "limit dolunca kural motoruna düştü (yeniden analiz)")
 
+        print("\nMorpheusAI köprüsü")
+        api("/limits", {"dailyLimit": 0, "perUserDailyLimit": 0})
+        wait_run(api("/runs", {"mode": "collect", "servers": ["srv1"]})[1]["id"])  # GenAI ile taze analiz
+        check(api("/integrations/morpheus", {"url": "http://127.0.0.1:3992", "token": "kisa"})[0] == 400, "kısa API token reddedildi")
+        mv = api("/integrations/morpheus", {"url": "http://127.0.0.1:3992", "token": "morpheus-api-token-123456", "targetField": "host"})[1]
+        check(mv["configured"] and mv["token"] == mv["mask"], "MorpheusAI entegrasyonu kaydedildi, token maskeli döndü")
+        api("/integrations/morpheus", {**mv, "autoSend": False})  # maskeli token geri kaydedilince korunmalı
+        mt = api("/integrations/morpheus/test", {})[1]
+        check(mt.get("ok") and mt.get("runnerTemplate") == "42", "MorpheusAI bağlantı testi (API token ile)")
+        st, rem, _ = api("/remediations", {"server": "srv1", "actionIndex": 0})
+        sent = morpheus_seen["created"][-1]
+        check(st == 201 and rem["id"] == "rem-0" and rem["score"] == 93 and rem["status"] == "generated", "aksiyon MorpheusAI'ye gönderildi, playbook kaydı döndü")
+        check(sent["server"]["target"] == "127.0.0.1" and sent["finding"]["title"] == "/u01 alanını genişlet" and "df -h /u01" in sent["finding"]["commands"]
+              and sent["finding"]["anomalies"][0]["id"] == "A1" and sent["server"]["os_release"].startswith("Red Hat"),
+              "gönderilen bulgu: AAP hedefi (adres), aksiyon, komutlar, ilişkili anomali ve OS bilgisi")
+        lst = api("/remediations?server=srv1")[1]["items"]
+        check(len(lst) == 1 and lst[0]["status"] == "check_ok" and lst[0]["lastJob"]["status"] == "successful", "düzeltme durumu MorpheusAI'den yenilendi")
+        api("/integrations/morpheus", {**mv, "autoSend": True, "targetField": "host"})
+        r = wait_run(api("/runs", {"mode": "collect", "servers": ["srv1"]})[1]["id"])
+        check(len(morpheus_seen["created"]) == 1, "otomatik gönderim: aynı sunucu + aksiyon 24 saat içinde tekrar gönderilmedi")
+
+        print("\nMCP (UnixAI OS)")
+        menv = {**os.environ, "UNIXAI_URL": base, "UNIXAI_API_TOKEN": "unixai-mcp-token-1234567890", "PYTHONIOENCODING": "utf-8"}
+        mp, rpc, notify = mcp_client(menv)
+        try:
+            init = rpc("initialize", {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "test", "version": "1"}})
+            check(init["result"]["serverInfo"]["name"] == "unixai-os" and init["result"]["protocolVersion"] == "2025-06-18", "MCP initialize")
+            notify("notifications/initialized")
+            tools = rpc("tools/list")["result"]["tools"]
+            check({"unixai_get_server_findings", "unixai_send_to_morpheus"} <= {t["name"] for t in tools}, f"MCP tools/list ({len(tools)} araç)")
+            ls = rpc("tools/call", {"name": "unixai_list_servers", "arguments": {}})["result"]
+            check(not ls.get("isError") and any(x["name"] == "srv1" for x in ls["structuredContent"]["servers"]), "MCP (API token ile) sunucu listesi")
+            fd = json.loads(rpc("tools/call", {"name": "unixai_get_server_findings", "arguments": {"server": "srv1"}})["result"]["content"][0]["text"])
+            check(fd["action_items"][0]["index"] == 0 and fd["action_items"][0]["commands"], "MCP sunucu bulguları (index'li aksiyonlar)")
+            sm = rpc("tools/call", {"name": "unixai_send_to_morpheus", "arguments": {"server": "srv1"}})["result"]["structuredContent"]
+            check(len(sm["sent"]) == 1 and sm["sent"][0]["id"] == "rem-1", "MCP: P1 aksiyonlar UnixAI köprüsüyle MorpheusAI'ye gönderildi")
+            bad = rpc("tools/call", {"name": "unixai_get_server_findings", "arguments": {"server": "yok"}})["result"]
+            check(bad.get("isError"), "MCP: hata isError olarak döndü")
+        finally:
+            mp.kill()
+        st401 = urllib.request.Request(base + "/api/overview", headers={"authorization": "Bearer yanlis-token-0000000000"})
+        try:
+            urllib.request.urlopen(st401)
+            check(False, "geçersiz API token reddedildi")
+        except urllib.error.HTTPError as e:
+            check(e.code == 401, "geçersiz API token reddedildi")
+
         print("\nDemo ve ayarlar")
         api("/limits", {"dailyLimit": 0, "perUserDailyLimit": 0})
         check(api("/settings", {"schedule": {"time": "25:99"}})[0] == 400, "geçersiz saat reddedildi")
@@ -240,6 +357,7 @@ def main():
         if failures:
             print("\n--- sunucu çıktısı ---\n" + out[-4000:])
         gw.shutdown()
+        mor.shutdown()
         shutil.rmtree(data_dir, ignore_errors=True)
     print(f"\n{failures} test BAŞARISIZ" if failures else "\nTüm testler başarılı")
     sys.exit(1 if failures else 0)
