@@ -80,6 +80,8 @@ const Api = (() => {
     remediations: (server) => request(`/remediations${server ? `?server=${enc(server)}` : ""}`),
     sendRemediation: (server, actionIndex, run) => request("/remediations", { method: "POST", body: { server, actionIndex, run } }),
     remediation: (id) => request(`/remediations/${enc(id)}`),
+    remDecide: (id, action, body = {}) => request(`/remediations/${enc(id)}/${action}`, { method: "POST", body }),
+    approvals: () => request("/approvals"),
     connection: () => request("/connection"),
     saveConnection: (c) => request("/connection", { method: "POST", body: c }),
     testConnection: (step) => request("/connection/test", { method: "POST", body: { step } }),

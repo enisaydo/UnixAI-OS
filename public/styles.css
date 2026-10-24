@@ -658,3 +658,25 @@ svg.i.i-xs { width: 13px; height: 13px; vertical-align: -2px; }
 .a2a-rem-meta { margin-left: auto; font-size: 11.5px; color: var(--muted); }
 .fix pre.yaml { max-height: 520px; white-space: pre; }
 @media (max-width: 1000px) { .a2a-layout { grid-template-columns: 1fr; } }
+
+/* ---- playbook onayı ---- */
+.rem-live { margin-top: 10px; }
+.rem-decide { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--hover); }
+.rem-decide > .i { width: 20px; height: 20px; flex: none; }
+.rem-decide-t { flex: 1; min-width: 220px; font-size: 13px; }
+.rem-decide-a { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.rem-decide.ask { background: var(--warn-soft); border-color: transparent; }
+.rem-decide.ask > .i { color: var(--warn); }
+.rem-decide.ok { background: var(--ok-soft); border-color: transparent; }
+.rem-decide.ok > .i { color: var(--ok); }
+.rem-decide.run { background: var(--info-soft); border-color: transparent; }
+.rem-decide.bad { background: var(--crit-soft); border-color: transparent; }
+.rem-decide.bad > .i { color: var(--crit); }
+.appr-banner { border-left: 3px solid var(--warn); margin-bottom: 18px; }
+.appr-h { display: flex; gap: 12px; align-items: center; }
+.appr-h > .i { width: 22px; height: 22px; color: var(--warn); }
+.appr-list { margin-top: 10px; display: grid; gap: 6px; }
+.appr-item { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 6px 0; border-top: 1px solid var(--border); }
+.appr-title { flex: 1; min-width: 200px; font-weight: 600; font-size: 13px; }
+.msg .a2a-rem { margin-top: 12px; background: var(--surface, transparent); }
+.sidebar .badge[hidden] { display: none; }

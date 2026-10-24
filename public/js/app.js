@@ -81,7 +81,7 @@ function route() {
   $$(".view").forEach((v) => v.classList.toggle("active", v.dataset.view === r));
   $$(".sidebar a").forEach((a) => a.classList.toggle("active", a.dataset.route === (r === "server" ? "dashboard" : r)));
   $("#sidebar").classList.remove("open");
-  if (r === "dashboard") loadOverview();
+  if (r === "dashboard") { loadOverview(); refreshApprovals(); }
   if (r === "server" && rest[0]) {
     if (rest[1]) State.sd.tab = rest[1];
     loadServer(decodeURIComponent(rest[0]));
@@ -695,10 +695,11 @@ function renderChatContext(preselect) {
 function renderChat() {
   $("#chatLog").innerHTML = State.chat.map((m) => `<div class="msg ${m.role}">
       <div class="avatar">${m.role === "user" ? "Siz" : "UA"}</div>
-      <div class="bubble ${m.error ? "error" : ""}">${m.role === "user" ? esc(m.content).replace(/\n/g, "<br>") : md(m.content) + traceHtml(m.trace)}</div></div>`).join("") +
+      <div class="bubble ${m.error ? "error" : ""}">${m.role === "user" ? esc(m.content).replace(/\n/g, "<br>") : md(m.content) + traceHtml(m.trace) + (m.rems?.length ? `<div class="sub-h">MorpheusAI'nin yazdığı playbook${m.rems.length > 1 ? "'lar" : ""}</div>${m.rems.map(remCard).join("")}` : "")}</div></div>`).join("") +
     (State.chatBusy ? `<div class="msg assistant"><div class="avatar">UA</div><div class="bubble typing"><span></span><span></span><span></span></div></div>` : "");
   $("#chatLog").scrollTop = $("#chatLog").scrollHeight;
   $("#chatSuggest").classList.toggle("hidden", State.chat.length > 1);
+  hydrateRem($("#chatLog"));
 }
 
 async function sendChat(text) {
@@ -711,7 +712,9 @@ async function sendChat(text) {
   const context = v === "fleet" ? { fleet: true } : v.startsWith("s:") ? { server: v.slice(2) } : null;
   try {
     const r = await Api.chat({ messages: State.chat.filter((m) => !m.error && !m.intro).map(({ role, content }) => ({ role, content })), context });
-    State.chat.push({ role: "assistant", content: r.reply, trace: r.trace, mode: r.mode });
+    const rems = [...new Map((r.remediations || []).map((x) => [x.id, x])).values()];
+    State.chat.push({ role: "assistant", content: r.reply, trace: r.trace, mode: r.mode, rems });
+    if (rems.length) refreshApprovals();
   } catch (e) {
     State.chat.push({ role: "assistant", content: e.message, error: true });
   } finally {
@@ -1421,9 +1424,114 @@ async function sendRemediation(i, btn) {
   }
 }
 
+
+/* ================================================================== */
+/*  Playbook onayı: MorpheusAI yazar, bir kişi UnixAI'den onaylar        */
+/*  (onay MorpheusAI'ye X-Approved-By ile aktarılır; ajanlar onay veremez) */
+/* ================================================================== */
+State.remLive = {};
+State.remYaml = {};
+State.approvals = [];
+
+function remDecideHtml(r) {
+  const id = esc(r.id), by = r.approval?.by ? `<span class="label blue">Onaylayan: ${esc(r.approval.by)}</span>` : "";
+  const open = r.url ? `<a class="btn link sm" href="${esc(r.url)}" target="_blank" rel="noopener">MorpheusAI'de aç</a>` : "";
+  const refresh = `<button class="btn link sm" data-rem-act="refresh" data-rem-id="${id}">${icon("refresh", "i i-xs")}Yenile</button>`;
+  const row = (cls, ic, title, sub, actions) => `<div class="rem-decide ${cls}">${icon(ic)}<div class="rem-decide-t"><b>${title}</b>${sub ? `<div class="muted sm">${sub}</div>` : ""}</div>
+      <div class="rem-decide-a">${actions}</div></div>`;
+  if (r.rejected || r.status === "rejected")
+    return row("off", "alert", "Reddedildi", `${esc(r.rejected?.by || "")}${r.rejected?.reason ? ` — ${esc(r.rejected.reason)}` : ""}`, open);
+  if (r.runnable === false) return row("off", "alert", "Bu playbook AAP runner ile çalıştırılamıyor", "MorpheusAI'de inceleyin.", open);
+  if (!r.approval)
+    return row("ask", "shield", "MorpheusAI bu playbook'u yazdı ve onayınızı bekliyor",
+      "Onaylarsanız AAP'de önce <b>check (dry-run)</b> çalışır, sunucuda değişiklik yapılmaz. Sunucuya uygulama ayrıca sizin onayınızla yapılır.",
+      `<button class="btn link sm danger" data-rem-act="reject" data-rem-id="${id}">Reddet</button>
+       <button class="btn primary sm" data-rem-act="approve" data-rem-id="${id}">${icon("check", "i i-xs")}Onayla</button>`);
+  const st = r.status;
+  if (st === "approved" || st === "check_running") return row("run", "clock", "Onaylandı — AAP'de check (dry-run) çalışıyor", by, refresh + open);
+  if (st === "check_ok")
+    return row("ok", "check", "Check başarılı — sunucuya uygulanmaya hazır", `${by} Uygulama hedefi: <code>${esc(r.target || r.server || "")}</code>`,
+      `${r.disruptive ? `<label class="check sm"><input type="checkbox" data-rem-disruptive /> Kesinti riskli adımlara izin ver</label>` : ""}
+       <button class="btn primary sm" data-rem-act="run" data-rem-id="${id}" data-target="${esc(r.target || r.server || "")}">${icon("bolt", "i i-xs")}Sunucuya uygula</button>`);
+  if (st === "check_failed")
+    return row("bad", "alert", "Check (dry-run) hatalı", `${by} AAP çıktısını MorpheusAI'de inceleyin.`,
+      `<button class="btn sm" data-rem-act="check" data-rem-id="${id}">Check'i tekrar çalıştır</button>` + open);
+  if (st === "running") return row("run", "clock", "Sunucuya uygulanıyor (AAP)", by, refresh + open);
+  if (st === "applied") return row("ok", "check", "Sunucuya uygulandı", by, open);
+  if (st === "failed") return row("bad", "alert", "Uygulama hatalı", `${by} AAP çıktısını MorpheusAI'de inceleyin.`, open);
+  return row("", "clock", esc(st || "—"), by, refresh + open);
+}
+
+function remLiveBox(id) {
+  const c = State.remLive[id];
+  return `<div class="rem-live" data-rem-live="${esc(id)}">${c ? remDecideHtml(c) : `<div class="muted sm">Onay durumu MorpheusAI'den alınıyor…</div>`}</div>`;
+}
+
+async function hydrateRem(root = document) {
+  await Promise.all($$("[data-rem-live]", root).filter((el) => !el.dataset.loaded).map(async (el) => {
+    el.dataset.loaded = "1";
+    try {
+      const r = await Api.remediation(el.dataset.remLive);
+      State.remLive[r.id] = r;
+      if (r.playbook) State.remYaml[r.id] = r.playbook;
+      $$(`[data-rem-live="${CSS.escape(r.id)}"]`).forEach((x) => (x.innerHTML = remDecideHtml(r)));
+    } catch (e) { el.innerHTML = `<div class="muted sm">Onay durumu alınamadı: ${esc(e.message)}</div>`; }
+  }));
+}
+
+async function refreshApprovals() {
+  if (!morConfigured()) { State.approvals = []; return renderApprovals(); }
+  try { State.approvals = (await Api.approvals()).items; } catch { State.approvals = []; }
+  renderApprovals();
+}
+
+function renderApprovals() {
+  const n = State.approvals.length, b = $("#apprBadge");
+  if (b) { b.textContent = n; b.hidden = !n; b.title = `${n} playbook onayınızı bekliyor`; }
+  const box = $("#apprBanner");
+  if (!box) return;
+  box.innerHTML = n ? `<div class="card appr-banner">
+      <div class="appr-h">${icon("shield")}<div><b>${n} playbook onayınızı bekliyor</b>
+        <div class="muted sm">MorpheusAI bu playbook'ları yazdı. Siz onaylamadan AAP'de hiçbir şey çalıştırılmaz.</div></div></div>
+      <div class="appr-list">${State.approvals.map((a) => `<div class="appr-item">
+        <code>${esc(a.server || "")}</code><span class="appr-title">${esc(a.playbookTitle || a.title || a.id)}</span>
+        ${a.score != null ? `<span class="label ${a.score >= 85 ? "green" : "gold"}">uyum ${a.score}</span>` : ""}${a.disruptive ? `<span class="label gold">kesinti riskli</span>` : ""}
+        <span class="muted sm mono">${esc(a.id)}</span>
+        <button class="btn sm primary" data-rem-open="${esc(a.id)}">İncele ve onayla</button></div>`).join("")}</div></div>` : "";
+}
+
+function bindApprovals() {
+  document.addEventListener("click", async (e) => {
+    const o = e.target.closest("[data-rem-open]");
+    if (o) return showRemYaml(o.dataset.remOpen);
+    const c = e.target.closest("[data-copy-yaml]");
+    if (c && !c.onclick) return copyText(State.remYaml[c.dataset.copyYaml] || "");
+    const b = e.target.closest("[data-rem-act]");
+    if (!b) return;
+    const id = b.dataset.remId, act = b.dataset.remAct, box = b.closest("[data-rem-live]");
+    if (act === "refresh") { $$(`[data-rem-live="${CSS.escape(id)}"]`).forEach((x) => delete x.dataset.loaded); return hydrateRem(); }
+    let body = {};
+    if (act === "approve" && !confirm(`${id} playbook'unu onaylıyor musunuz?\n\nOnaydan sonra AAP'de check (dry-run) çalıştırılır; sunucuda değişiklik yapılmaz.`)) return;
+    if (act === "reject") { const reason = prompt("Ret nedeni (opsiyonel):"); if (reason === null) return; body = { reason }; }
+    if (act === "check") body = { mode: "check" };
+    if (act === "run") {
+      if (!confirm(`Playbook ${b.dataset.target || "sunucuya"} üzerinde GERÇEKTEN UYGULANACAK (AAP). Emin misiniz?`)) return;
+      body = { mode: "run", allowDisruptive: Boolean(box?.querySelector("[data-rem-disruptive]")?.checked) };
+    }
+    b.disabled = true;
+    try {
+      const r = await Api.remDecide(id, act === "run" || act === "check" ? "launch" : act, body);
+      State.remLive[r.id] = r;
+      $$(`[data-rem-live="${CSS.escape(r.id)}"]`).forEach((x) => (x.innerHTML = remDecideHtml(r)));
+      toast({ approve: "Onaylandı — MorpheusAI AAP'de check (dry-run) başlattı", reject: "Reddedildi", check: "Check başlatıldı", run: "Playbook sunucuya uygulanıyor" }[act]);
+      refreshApprovals();
+    } catch (err) { toast(err.message, true); b.disabled = false; }
+  });
+}
+
 function remsPane() {
   const rows = State.sd.rems || [];
-  return `<div class="toolbar"><span class="muted sm">Bu sunucu için MorpheusAI'ye gönderilen aksiyonlar. Playbook inceleme, onay ve AAP'de çalıştırma MorpheusAI → Düzeltmeler ekranındadır.</span>
+  return `<div class="toolbar"><span class="muted sm">Bu sunucu için MorpheusAI'ye gönderilen aksiyonlar. Playbook'u görmek ve onaylamak için <b>YAML / Onay</b>'a basın; onaydan önce AAP'de hiçbir şey çalıştırılmaz.</span>
       <span class="toolbar-spacer"></span><button class="btn sm" id="remReload">${icon("refresh")}Durumları yenile</button></div>
     <div class="table-wrap"><table class="table"><tr><th>Gönderim</th><th>Aksiyon</th><th>Durum</th><th>Uyum</th><th>Son AAP işi</th><th>AAP hedefi</th><th></th></tr>
     ${rows.map((r) => `<tr><td class="t-sub">${esc(fmtTime(r.sentAt))}<br>${esc(r.sentBy || "")}</td>
@@ -1431,7 +1539,7 @@ function remsPane() {
       <td>${remTag(r.status)}</td><td>${r.score != null ? scoreBar(r.score) : "—"}</td>
       <td class="t-sub">${r.lastJob ? `#${esc(r.lastJob.id)} ${esc(r.lastJob.mode)} · ${esc(r.lastJob.status)}` : "—"}</td>
       <td class="mono">${esc(r.target || "")}</td>
-      <td class="row-actions"><button class="btn link sm" data-rem-yaml="${esc(r.id)}">YAML</button><a class="btn link sm" href="${esc(r.url)}" target="_blank" rel="noopener">MorpheusAI'de aç</a></td></tr>`).join("") ||
+      <td class="row-actions"><button class="btn link sm" data-rem-yaml="${esc(r.id)}">YAML / Onay</button><a class="btn link sm" href="${esc(r.url)}" target="_blank" rel="noopener">MorpheusAI'de aç</a></td></tr>`).join("") ||
       `<tr><td colspan="7" class="muted">Henüz gönderilmedi. Aksiyonlar sekmesinde <b>MorpheusAI'ye gönder</b>'e basın.</td></tr>`}</table></div>`;
 }
 
@@ -1439,7 +1547,8 @@ async function showRemYaml(id) {
   modal("Playbook (MorpheusAI)", loadingView("MorpheusAI'den alınıyor…"), { wide: true });
   try {
     const r = await Api.remediation(id);
-    $("#modalBody").innerHTML = remCard({ ...r, title: r.playbookTitle || r.title, summary: null, lastJob: r.lastJob, approval: r.approval });
+    State.remLive[r.id] = r;
+    $("#modalBody").innerHTML = remCard({ ...r, title: r.playbookTitle || r.title, lastJob: r.lastJob, approval: r.approval });
     $$("[data-copy-yaml]", $("#modalBody")).forEach((b) => (b.onclick = () => copyText(r.playbook || "")));
   } catch (e) { $("#modalBody").innerHTML = errorView(e); }
 }
@@ -1713,6 +1822,7 @@ const peerTitle = (p) => (/morpheus/i.test(p) ? "MorpheusAI ajanı" : /unixai/i.
 function remCard(x) {
   const st = typeof remTag === "function" ? remTag(x.status) : `<span class="label">${esc(x.status || "")}</span>`;
   const yaml = x.playbook || "";
+  if (yaml) State.remYaml[x.id] = yaml;
   return `<div class="a2a-rem">
     <div class="a2a-rem-h"><b>${esc(x.title || x.id)}</b> ${st} ${x.score != null ? `<span class="label ${x.score >= 85 ? "green" : x.score >= 60 ? "gold" : "red"}">uyum ${x.score}</span>` : ""}
       ${x.risk ? `<span class="label">risk: ${esc(x.risk)}</span>` : ""}${x.disruptive ? `<span class="label gold">kesinti riskli adım</span>` : ""}
@@ -1722,8 +1832,8 @@ function remCard(x) {
     ${yaml ? `<div class="fix"><pre class="yaml">${esc(yaml)}</pre><button class="btn link sm copy" data-copy-yaml="${esc(x.id)}">YAML kopyala</button></div>` : `<p class="muted sm">YAML bu kayıtta yok.</p>`}
     <div class="toolbar end">${x.lastJob ? `<span class="muted sm">Son AAP işi #${esc(x.lastJob.id)} ${esc(x.lastJob.mode)} · ${esc(x.lastJob.status)}</span>` : ""}
       ${x.approval ? `<span class="label blue">Onaylayan: ${esc(x.approval.by)}</span>` : ""}
-      ${x.url ? `<a class="btn sm" href="${esc(x.url)}" target="_blank" rel="noopener">MorpheusAI'de aç / onayla</a>`
-        : SELF_SHORT === "Morpheus" ? `<a class="btn sm" href="#/remediations/${esc(x.id)}">Düzeltmeler'de aç / onayla</a>` : ""}</div>
+    </div>
+    ${x.id ? remLiveBox(x.id) : ""}
   </div>`;
 }
 
@@ -1776,6 +1886,7 @@ async function showA2A(id, targetList = "#a2aList", targetDetail = "#a2aDetail")
   try {
     const r = await Api.a2aItem(id);
     $(targetDetail).innerHTML = a2aTranscript(r);
+    hydrateRem($(targetDetail));
     $$("[data-copy-yaml]", $(targetDetail)).forEach((b) => (b.onclick = () => copyText(State.a2aYaml[b.dataset.copyYaml] || "")));
   } catch (e) { $(targetDetail).innerHTML = errorView(e); }
 }
@@ -1839,6 +1950,7 @@ function bindEvents() {
   bindAgentPage();
   bindAudit();
   bindA2A();
+  bindApprovals();
   $("#dashCollect").onclick = (e) => startRun("collect", e.target);
   $("#dashReanalyze").onclick = (e) => startRun("reanalyze", e.target);
 
@@ -2034,6 +2146,8 @@ function bindEvents() {
   try { State.settings = await Api.settings(); } catch {}
   refreshTokenChip();
   setInterval(refreshTokenChip, 60000);
+  refreshApprovals();
+  setInterval(refreshApprovals, 60000);
   try {
     State.overview = await Api.overview();
     setRunChip(State.overview.lastRun);

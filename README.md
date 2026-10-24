@@ -55,12 +55,15 @@ Podman ile: `./deploy/podman-up.sh --systemd` (host'taki `/root/.ssh` container'
 ## MorpheusAI ile düzeltme (bulgu → standartlara uygun playbook → AAP)
 
 UnixAI OS bir sunucuda bulgu bulduğunda aksiyonu **MorpheusAI'ye gönderir**; MorpheusAI kurumsal Ansible standartlarına uygun
-bir playbook üretir, standart analizinden geçirir (uyum skoru düşükse ihlalleri modele verip bir kez düzeltir), yönetici onayından sonra
-AAP'deki runner job template'i ile **önce check (dry-run), sonra gerçek** olarak o sunucuda çalıştırır.
+bir playbook üretir, standart analizinden geçirir (uyum skoru düşükse ihlalleri modele verip bir kez düzeltir) ve **onayınızı ister**.
+Onaydan önce AAP'de hiçbir şey çalışmaz. Onaylayınca AAP'de **check (dry-run)** başlar; check başarılıysa **Sunucuya uygula** ile gerçek çalıştırma yapılır.
 
 1. UnixAI OS → **Ayarlar → MorpheusAI**: adres + `MORPHEUS_API_TOKEN`, AAP envanterindeki host adı (sunucu adı / adres).
 2. Sunucu detayı → **Aksiyonlar** → *MorpheusAI'ye gönder* (veya Ayarlar'da "toplama bitince P1'leri otomatik gönder").
-3. Durum **Düzeltmeler** sekmesinde izlenir; inceleme/onay/çalıştırma MorpheusAI → **Düzeltmeler** ekranındadır.
+3. Playbook (YAML) ve **Onayla / Reddet / Sunucuya uygula** düğmeleri UnixAI'de görünür: ajan sohbet cevabı, **MorpheusAI** sekmesi,
+   sunucu detayı → MorpheusAI sekmesi (*YAML / Onay*) ve dashboard'daki **"N playbook onayınızı bekliyor"** bandı (menüde rozet).
+   Onay MorpheusAI'ye kişinin adıyla aktarılır (`EnisA (unixai üzerinden)`); MorpheusAI → Düzeltmeler ekranından da onaylanabilir.
+   Bunun için MorpheusAI'de **"Onay aktarabilir"** işaretli token üretip UnixAI'ye girin (Ayarlar → MorpheusAI veya MCP bağlantısı).
 4. AAP runner kurulumu: MorpheusAI reposunda `deploy/aap/README.md`.
 
 ### MCP

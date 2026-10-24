@@ -162,6 +162,7 @@ def _exec(name: str, args: dict, ts: dict, ctx: dict, conv_id: str, hop: int):
         raise
     d = res if isinstance(res, dict) else {"answer": str(res)}
     rems = [{**x, "url": f"{base}/#/remediations/{x.get('id')}"} for x in d.get("remediations") or [] if isinstance(x, dict)]
+    ctx.setdefault("_rems", []).extend(rems)
     a2a.record("giden", peer, q, d.get("answer"), server=server or next((x.get("server") for x in rems if x.get("server")), None),
                conversation_id=conv_id, remote_conversation_id=d.get("conversationId"), remediations=rems, tools=d.get("tools_used"),
                duration_ms=int((time.monotonic() - t0) * 1000), user=ctx.get("user"))
@@ -176,6 +177,7 @@ def _short(v, n=MAX_RESULT) -> str:
 def run(messages: list, context=None, ctx=None, hop: int = 0, conversation_id=None, origin=None) -> dict:
     """messages: [{role, content}] (son mesaj kullanıcı). Dönen: {reply, conversationId, trace, mode}"""
     ctx = dict(ctx or {})
+    ctx["_rems"] = []  # karşı ajanın bu konuşmada ürettiği playbook'lar (onay kartları için)
     if not genai.is_configured():
         raise ApiError("Ajan için GenAI bağlantısı gerekli (Ayarlar → GenAI bağlantısı)", 400)
     s = settings()
@@ -271,7 +273,7 @@ def run(messages: list, context=None, ctx=None, hop: int = 0, conversation_id=No
         _store(conv)
         raise
     _store(conv)
-    return {"reply": reply, "conversationId": conv["id"], "trace": conv["trace"], "mode": mode}
+    return {"reply": reply, "conversationId": conv["id"], "trace": conv["trace"], "mode": mode, "remediations": ctx.get("_rems") or []}
 
 
 # ------------------------------------------------------------------

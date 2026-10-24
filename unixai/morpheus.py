@@ -6,8 +6,13 @@
     targetField  AAP envanterindeki host adı: "name" (UnixAI sunucu adı) veya "host" (adres)
     autoSend     toplama bitince P1 (veya P1+P2) aksiyonları otomatik gönder
 
-  Akış: POST {url}/api/remediations → MorpheusAI standartlara uygun playbook üretir → onay → AAP (check → run)
+  Akış: POST {url}/api/remediations → MorpheusAI standartlara uygun playbook üretir → İNSAN ONAYI → AAP (check → run)
   Gönderilen kayıtlar data/remediations.json'da tutulur; durum MorpheusAI'den yenilenir.
+
+  Onay aktarımı: UnixAI ekranında bir kişi "Onayla / Reddet / Sunucuya uygula" dediğinde istek MorpheusAI'ye
+  X-Approved-By: <kişi> başlığıyla iletilir. MorpheusAI bunu yalnızca "onay aktarabilir" işaretli token'dan kabul eder
+  (MorpheusAI → Ajan & MCP → token üret → "Onay aktarabilir"). Ajanlar (MCP araçları) hiçbir zaman onay veremez.
+  Entegrasyon ayarı yoksa "morpheus" adlı/adresli MCP bağlantısının adresi ve token'ı kullanılır.
 """
 from __future__ import annotations
 
@@ -15,6 +20,8 @@ import json
 import threading
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlsplit
+
+import re
 
 from .env import env
 from .errors import ApiError
@@ -37,14 +44,34 @@ def get() -> dict:
     return {**_defaults(), **((read_json(FILE, {}) or {}).get("morpheus") or {})}
 
 
-def is_configured() -> bool:
-    c = get()
+def _own_configured(c: dict) -> bool:
     return urlsplit(c["url"] or "").scheme in ("http", "https") and bool(c["token"])
+
+
+def _mcp_fallback() -> dict | None:
+    """Entegrasyon ayarı yoksa MorpheusAI MCP bağlantısı (…/mcp) üzerinden REST adresi ve token"""
+    from . import mcp_hub
+
+    for conn in mcp_hub._load()["connections"]:
+        if conn.get("enabled", True) and conn.get("token") and re.search(r"morpheus", f"{conn.get('name')} {conn.get('url')}", re.I):
+            return {"url": re.sub(r"/mcp/?$", "", conn["url"].rstrip("/")), "token": conn["token"], "insecureTls": bool(conn.get("insecureTls"))}
+    return None
+
+
+def target() -> dict | None:
+    c = get()
+    if _own_configured(c):
+        return {"url": c["url"], "token": c["token"], "insecureTls": c["insecureTls"]}
+    return _mcp_fallback()
+
+
+def is_configured() -> bool:
+    return target() is not None
 
 
 def view() -> dict:
     c = get()
-    return {**c, "token": MASK if c["token"] else "", "configured": is_configured(), "mask": MASK}
+    return {**c, "token": MASK if c["token"] else "", "configured": is_configured(), "viaMcp": not _own_configured(c) and is_configured(), "mask": MASK}
 
 
 def save(data: dict, user=None) -> dict:
@@ -70,15 +97,16 @@ def save(data: dict, user=None) -> dict:
     return view()
 
 
-def _call(method: str, path: str, body=None, kind="morpheus"):
-    c = get()
-    if not is_configured():
-        raise ApiError("MorpheusAI entegrasyonu yapılandırılmamış (Ayarlar → MorpheusAI)", 400)
-    res = request("morpheus", kind, c["url"] + "/api" + path, method=method,
-                  headers={"content-type": "application/json", "accept": "application/json", "authorization": f"Bearer {c['token']}",
-                           "x-morpheus-client": "unixai-os"},
+def _call(method: str, path: str, body=None, kind="morpheus", approved_by=None):
+    c, t = get(), target()
+    if not t:
+        raise ApiError("MorpheusAI entegrasyonu yapılandırılmamış (Ayarlar → MorpheusAI veya Ajan & MCP → morpheusai bağlantısı)", 400)
+    headers = {"content-type": "application/json", "accept": "application/json", "authorization": f"Bearer {t['token']}", "x-morpheus-client": "unixai-os"}
+    if approved_by:
+        headers["x-approved-by"] = str(approved_by)[:80]
+    res = request("morpheus", kind, t["url"] + "/api" + path, method=method, headers=headers,
                   body=json.dumps(body, ensure_ascii=False) if body is not None else None,
-                  insecure_tls=c["insecureTls"], timeout_ms=c.get("timeoutMs", 600000))
+                  insecure_tls=t["insecureTls"], timeout_ms=c.get("timeoutMs", 600000))
     if res["status"] >= 400:
         msg = (res["json"] or {}).get("error") if isinstance(res["json"], dict) else None
         raise ApiError(f"MorpheusAI {res['status']}: {msg or res['text'][:300]}", 502 if res["status"] >= 500 else res["status"])
@@ -105,7 +133,7 @@ def _save_records(rows: list) -> None:
 
 
 def link(rem_id: str) -> str:
-    return f"{get()['url']}/#/remediations/{rem_id}"
+    return f"{(target() or get())['url']}/#/remediations/{rem_id}"
 
 
 def _merge(rec: dict, r: dict) -> dict:
@@ -113,6 +141,7 @@ def _merge(rec: dict, r: dict) -> dict:
     rec.update({
         "status": r.get("status"), "score": (r.get("compliance") or {}).get("score"), "engine": r.get("engine"),
         "runnable": r.get("runnable"), "approval": r.get("approval"), "playbookTitle": r.get("title"),
+        "rejected": r.get("rejected"), "disruptive": r.get("disruptive"), "risk": r.get("risk"), "summary": r.get("summary"),
         "lastJob": {k: last.get(k) for k in ("id", "mode", "status", "url")} if last else None,
         "refreshedAt": iso_now(), "url": link(r["id"]),
     })
@@ -168,7 +197,57 @@ def refresh(rem_id: str) -> dict:
             rows.append(rec)
         _merge(rec, r)
         _save_records(rows)
-    return {**rec, "playbook": r.get("playbook"), "events": r.get("events", [])[-10:], "jobs": r.get("jobs", [])}
+    return {**rec, "playbook": r.get("playbook"), "events": r.get("events", [])[-10:], "jobs": r.get("jobs", []),
+            "requireCheck": r.get("requireCheck", True)}
+
+
+# ------------------------------------------------------------------
+#  İnsan onayı (UnixAI ekranından MorpheusAI'ye aktarılır)
+# ------------------------------------------------------------------
+def decide(rem_id: str, action: str, user: str, body=None) -> dict:
+    """action: approve | reject | run | check — onaylayan kişi X-Approved-By ile iletilir"""
+    if not re.match(r"^[\w-]{3,64}$", rem_id or ""):
+        raise ApiError("Geçersiz kayıt numarası", 400)
+    body = body or {}
+    if action == "approve":
+        _call("POST", f"/remediations/{rem_id}/approve", {}, kind="morpheus-approve", approved_by=user)
+    elif action == "reject":
+        _call("POST", f"/remediations/{rem_id}/reject", {"reason": str(body.get("reason") or "")[:500]}, kind="morpheus-reject", approved_by=user)
+    elif action in ("run", "check"):
+        _call("POST", f"/remediations/{rem_id}/launch", {"mode": action, "allowDisruptive": body.get("allowDisruptive") is True},
+              kind=f"morpheus-launch-{action}", approved_by=user)
+    else:
+        raise ApiError("Bilinmeyen işlem", 400)
+    return refresh(rem_id)
+
+
+def pending(limit=20) -> list:
+    """Onay bekleyen playbook'lar: köprü kayıtları + ajanlar arası konuşmalarda üretilenler (durum MorpheusAI'den yenilenir)"""
+    if not is_configured():
+        return []
+    from . import a2a
+
+    ids = []
+    for x in sorted(_records(), key=lambda r: r.get("sentAt") or "", reverse=True):
+        if x.get("status") not in FINAL and not x.get("approval"):
+            ids.append(x["id"])
+    for item in a2a.query(limit=100)["items"]:
+        ids += [m["id"] for m in item.get("remediations") or [] if m.get("id")]
+    out, seen = [], set()
+    for rid in ids:
+        if rid in seen or len(seen) >= limit:
+            continue
+        seen.add(rid)
+        rec = next((x for x in _records() if x["id"] == rid), None)
+        if rec and (rec.get("approval") or rec.get("status") in FINAL):
+            continue
+        try:
+            r = refresh(rid)
+        except Exception:
+            continue
+        if not r.get("approval") and not r.get("rejected") and r.get("runnable") is not False and r.get("status") == "generated":
+            out.append({k: r.get(k) for k in ("id", "server", "title", "playbookTitle", "score", "status", "target", "sentAt", "url", "risk", "disruptive")})
+    return out
 
 
 def list_records(server=None, refresh_pending=True) -> list:

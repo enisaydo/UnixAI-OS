@@ -44,6 +44,9 @@ PATTERNS = [  # (method, path öneki/soneki, işlem)
     ("POST", "/diagnostic", "Canlı tanı çalıştırıldı"),
     ("DELETE", "/api/mcp/tokens/", "MCP token'ı iptal edildi"),
     ("DELETE", "/api/mcp/connections/", "MCP bağlantısı silindi"),
+    ("POST", "/approve", "Playbook onaylandı (MorpheusAI'ye aktarıldı)"),
+    ("POST", "/reject", "Playbook reddedildi (MorpheusAI'ye aktarıldı)"),
+    ("POST", "/launch", "Playbook AAP'de başlatıldı (MorpheusAI)"),
 ]
 
 
@@ -73,8 +76,10 @@ def describe(method: str, path: str, body) -> tuple:
     for m, frag, label in PATTERNS:
         if method == m and (path.startswith(frag) or path.endswith(frag)):
             target = path.rstrip("/").split("/")
-            name = target[3] if len(target) > 3 and path.startswith("/api/servers/") else target[-1]
+            name = target[3] if len(target) > 3 and path.startswith(("/api/servers/", "/api/remediations/")) else target[-1]
             detail = {"target": name}
+            if frag == "/launch":
+                detail["mode"] = "run" if body.get("mode") == "run" else "check"
             if frag == "/diagnostic":
                 detail.update(check=body.get("check"), params=body.get("params"))
             return label, detail

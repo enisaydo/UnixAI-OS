@@ -9,8 +9,11 @@ Senaryo:
     UnixAI ajanı  → morpheusai__morpheus_agent_ask  (MCP: UnixAI → MorpheusAI /mcp)
         MorpheusAI ajanı → unixai__unixai_get_server_findings   (MCP: MorpheusAI → UnixAI /mcp, veri aracı)
         MorpheusAI ajanı → morpheus_create_remediation          (GenAI playbook + standart analizi)
-        MorpheusAI ajanı → morpheus_launch_remediation (check)  (AAP runner)
-    UnixAI ajanı  → kullanıcıya özet
+        MorpheusAI ajanı → morpheus_launch_remediation (check)  → REDDEDİLİR: playbook henüz onaylanmadı
+        MorpheusAI ajanı → "Bu playbook'u yazdım, onayınızı bekliyor"
+    UnixAI ajanı  → kullanıcıya özet + playbook (YAML) + Onayla/Reddet kartı
+  kullanıcı (UnixAI ekranı) → Onayla  → MorpheusAI (X-Approved-By) → AAP check (dry-run)
+  check başarılı → kullanıcı → Sunucuya uygula → AAP run
   hop sınırı: MorpheusAI ajanı (hop 1) UnixAI ajanına geri soru soramaz (yalnızca veri araçları açık)
 """
 import json
@@ -31,7 +34,7 @@ ROOT = Path(__file__).resolve().parent.parent
 MDIR = Path(os.environ.get("MORPHEUS_DIR", ROOT.parent / "MorpheusAI")).resolve()
 GW, AAP, UX, MP = 3951, 3953, 3954, 3955
 fails = 0
-seen = {"unixai_tools": [], "morpheus_tools": [], "aap": []}
+seen = {"unixai_tools": [], "morpheus_tools": [], "aap": [], "rid": None, "jobs": {}}
 
 
 def check(c, msg):
@@ -103,10 +106,11 @@ class Gateway(BaseHTTPRequestHandler):
                 return self.j(200, tool_call("morpheus_create_remediation", {"server": {"name": f["server"], "os_release": f["os_release"]},
                                                                              "finding": {"title": act["title"], "priority": act["priority"], "commands": ["df -h /u01", "vgs"]}}))
             if name == "morpheus_create_remediation":
-                rid = json.loads(res)["id"]
-                return self.j(200, tool_call("morpheus_launch_remediation", {"id": rid, "mode": "check"}))
-            r = json.loads(res)
-            return self.j(200, final(f"{r['id']} oluşturuldu (uyum {r['compliance']['score']}), check çalıştırması #{r['jobs'][0]['id']} başlatıldı; gerçek uygulama için onay gerekli."))
+                seen["rid"] = json.loads(res)["id"]
+                # kurallara uymayan bir ajan gibi onaysız check dener — MorpheusAI reddetmeli
+                return self.j(200, tool_call("morpheus_launch_remediation", {"id": seen["rid"], "mode": "check"}))
+            seen["launch_result"] = res
+            return self.j(200, final(f"Bu playbook'u yazdım: {seen['rid']} (uyum 95). AAP'de çalıştırmadan önce onayınızı bekliyorum."))
         if "Bu bulguyu gidermek için" in last:  # MorpheusAI playbook üretimi
             pb = ('---\n- name: "UnixAI | /u01 alanını genişlet"\n  hosts: "{{ target_host }}"\n  become: true\n  gather_facts: true\n  tasks:\n'
                   '    - name: "VG boş alanını kontrol et"\n      ansible.builtin.command: vgs --noheadings -o vg_free vg_data\n      register: unixai_vg\n      changed_when: false\n      check_mode: false\n      tags: [unixai_remediation]\n')
@@ -131,7 +135,8 @@ class FakeAAP(BaseHTTPRequestHandler):
         self.wfile.write(out)
 
     def do_GET(self):
-        out = json.dumps({"id": int(self.path.rstrip("/").split("/")[-1]), "status": "pending"}).encode()
+        jid = int(self.path.rstrip("/").split("/")[-1])
+        out = json.dumps({"id": jid, "status": seen["jobs"].get(jid, "pending")}).encode()
         self.send_response(200)
         self.send_header("content-type", "application/json")
         self.send_header("content-length", str(len(out)))
@@ -139,8 +144,8 @@ class FakeAAP(BaseHTTPRequestHandler):
         self.wfile.write(out)
 
 
-def call(port, path, body=None, method=None, token=None):
-    h = {"content-type": "application/json"}
+def call(port, path, body=None, method=None, token=None, headers=None):
+    h = {"content-type": "application/json", **(headers or {})}
     if token:
         h["authorization"] = f"Bearer {token}"
     req = urllib.request.Request(f"http://127.0.0.1:{port}/api{path}", data=json.dumps(body).encode() if body is not None else None,
@@ -176,7 +181,7 @@ def main():
         call(UX, "/runs", {"mode": "demo", "ai": False})
         time.sleep(3)
         ux_tok = call(UX, "/mcp/tokens", {"name": "morpheusai", "readonly": False})["token"]
-        mp_tok = call(MP, "/mcp/tokens", {"name": "unixai", "readonly": False})["token"]
+        mp_tok = call(MP, "/mcp/tokens", {"name": "unixai", "readonly": False, "canApprove": True})["token"]  # onay aktarabilir
         c1 = call(UX, "/mcp/connections", {"name": "morpheusai", "url": f"http://127.0.0.1:{MP}/mcp", "token": mp_tok, "description": "Ansible/AAP otomasyon ajanı"})
         c2 = call(MP, "/mcp/connections", {"name": "unixai", "url": f"http://127.0.0.1:{UX}/mcp", "token": ux_tok, "description": "RHEL gözlem ajanı"})
         t1, t2 = call(UX, f"/mcp/connections/{c1['id']}/test", {}), call(MP, f"/mcp/connections/{c2['id']}/test", {})
@@ -188,17 +193,18 @@ def main():
         print("  UnixAI ajanı cevabı:", r["reply"][:220].replace("\n", " "))
         check(r["mode"] == "native" and [t["tool"] for t in tr] == ["unixai_get_server_findings", "morpheusai__morpheus_agent_ask"], "UnixAI ajanı: yerel veri aracı → MorpheusAI ajanına soru")
         check(tr[1]["remoteAgent"] and tr[1]["where"] == "morpheusai" and tr[1]["ok"], "ajanlar arası çağrı MCP üzerinden başarılı")
-        check(re.search(r"rem-\d{8}-[0-9a-f]{8}", r["reply"]) is not None and "check" in r["reply"], "UnixAI cevabında MorpheusAI'nin oluşturduğu kayıt ve check bilgisi var")
+        check(re.search(r"rem-\d{8}-[0-9a-f]{8}", r["reply"]) is not None and "onay" in r["reply"], "UnixAI cevabında MorpheusAI'nin yazdığı kayıt ve onay isteği var")
+        check(len(r.get("remediations") or []) == 1 and "hosts:" in r["remediations"][0].get("playbook", ""), "sohbet cevabı playbook'u (YAML) onay kartı için içeriyor")
         check("morpheusai__morpheus_agent_ask" in seen["unixai_tools"][0], "UnixAI ajanı MorpheusAI'nin araçlarını görüyor")
         check("unixai__unixai_agent_ask" not in seen["morpheus_tools"][0] and "unixai__unixai_get_server_findings" in seen["morpheus_tools"][0],
               "hop sınırı: MorpheusAI ajanı UnixAI'nin veri araçlarını görüyor, ajanına geri soru soramıyor")
         mconv = call(MP, "/agent/conversations")[0]
         check(mconv["origin"] == "unixai-os" and mconv["hop"] == 1 and mconv["tools"] == ["unixai__unixai_get_server_findings", "morpheus_create_remediation", "morpheus_launch_remediation"],
-              "MorpheusAI ajanı: UnixAI'den veri aldı → playbook üretti → check başlattı (konuşma kaydı)")
-        check(len(seen["aap"]) == 1 and seen["aap"][0]["job_type"] == "check" and seen["aap"][0]["limit"] == "rhel-db01", "AAP'de yalnızca check (dry-run) başlatıldı, hedef rhel-db01")
+              "MorpheusAI ajanı: UnixAI'den veri aldı → playbook üretti → onaysız check denemesi reddedildi (konuşma kaydı)")
+        check(not seen["aap"] and "onay" in (seen.get("launch_result") or ""), "onay olmadan AAP'ye hiçbir şey gönderilmedi (ajanın check denemesi reddedildi)")
         rems = call(MP, "/remediations")["items"]
-        check(len(rems) == 1 and rems[0]["compliance"]["score"] == 95 and rems[0]["status"] == "check_running" and not rems[0]["approval"],
-              "düzeltme kaydı: uyum 95, check çalışıyor, gerçek uygulama için onay bekliyor")
+        check(len(rems) == 1 and rems[0]["compliance"]["score"] == 95 and rems[0]["status"] == "generated" and not rems[0]["approval"],
+              "düzeltme kaydı: uyum 95, onay bekliyor")
         uconv = call(UX, f"/agent/conversations/{r['conversationId']}")
         check(uconv["trace"][1]["result"] and "rem-" in uconv["trace"][1]["result"], "UnixAI konuşma kaydında MorpheusAI ajanının cevabı saklandı")
         print("\n[Ajanlar arası konuşma kaydı]")
@@ -213,6 +219,31 @@ def main():
         ma = call(MP, "/a2a")["items"]
         check(len(ma) == 1 and ma[0]["direction"] == "gelen" and ma[0]["peer"] == "unixai-os" and ma[0]["server"] == "rhel-db01" and ma[0]["remediations"],
               "MorpheusAI: gelen konuşma ayrı kayıtta (UnixAI ajanından, sunucu, playbook)")
+        print("\n[Onay — UnixAI ekranından]")
+        rid = rems[0]["id"]
+        ap = call(UX, "/approvals")["items"]
+        check(len(ap) == 1 and ap[0]["id"] == rid and ap[0]["server"] == "rhel-db01", "UnixAI: onay bekleyen playbook listede (menü rozeti / dashboard)")
+        try:
+            call(UX, f"/remediations/{rid}/approve", {}, token="sahte-api-token-123456789")
+            check(False, "API token ile UnixAI üzerinden onay engellendi")
+        except RuntimeError as e:
+            check(" 401 " in str(e) or " 403 " in str(e), "API token ile UnixAI üzerinden onay engellendi")
+        a = call(UX, f"/remediations/{rid}/approve", {}, headers={"x-unixai-user": "EnisA"})
+        check(a["approval"]["by"] == "EnisA (unixai üzerinden)" and len(seen["aap"]) == 1 and seen["aap"][0]["job_type"] == "check" and seen["aap"][0]["limit"] == "rhel-db01",
+              "onay MorpheusAI'ye aktarıldı (onaylayan EnisA) → AAP'de check (dry-run) başladı, hedef rhel-db01")
+        check(not call(UX, "/approvals")["items"], "onaydan sonra bekleyen onay kalmadı")
+        try:
+            call(UX, f"/remediations/{rid}/launch", {"mode": "run"})
+            check(False, "check bitmeden sunucuya uygulama engellendi")
+        except RuntimeError as e:
+            check(" 409 " in str(e), "check bitmeden sunucuya uygulama engellendi")
+        seen["jobs"][901] = "successful"
+        time.sleep(3.2)
+        check(call(UX, f"/remediations/{rid}")["status"] == "check_ok", "check başarılı (durum MorpheusAI'den yenilendi)")
+        run = call(UX, f"/remediations/{rid}/launch", {"mode": "run"}, headers={"x-unixai-user": "EnisA"})
+        check(len(seen["aap"]) == 2 and seen["aap"][1]["job_type"] == "run" and run["status"] == "running", "kişi UnixAI'den 'Sunucuya uygula' dedi → AAP run")
+        au = [x for x in call(UX, "/audit")["records"] if "Playbook" in str(x.get("action", ""))]
+        check(len(au) >= 2, "onay ve uygulama İşlem Kayıtları'na düştü")
         call(UX, "/chat", {"messages": [{"role": "user", "content": "rhel-db01 nasıl?"}], "agent": False})
         check(len(call(UX, "/a2a")["items"]) == 1, "kullanıcı sohbetleri ajanlar arası kayda karışmıyor")
         if os.environ.get("E2E_KEEP"):  # arayüzü incelemek için süreçleri açık tut

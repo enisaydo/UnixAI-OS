@@ -56,8 +56,11 @@ Yalnızca stdio destekleyen istemciler için aktarıcılar: `mcp/unixai_mcp.py` 
   kullanır) — sonsuz döngü önlenir.
 - **Canlı tanı**: UnixAI ajanı sunucuda yalnızca katalogdaki **salt-okunur** komutları (LVM, servis logları, portlar, SELinux...) doğrulanmış
   parametrelerle çalıştırabilir; serbest komut çalıştıramaz.
-- **Onay**: playbook'un gerçek uygulaması (`mode=run`) her zaman MorpheusAI arayüzünde insan onayı ve başarılı check gerektirir; ajanlar ve
-  MCP token'ları onay veremez.
+- **Onay**: MorpheusAI'nin yazdığı playbook, AAP'de (check dahil) çalışmadan önce **bir kişinin onayını** bekler — istek UnixAI ajanından
+  gelse bile. Ajan "bu playbook'u yazdım" deyip YAML'ı gösterir; onay MorpheusAI → Düzeltmeler ekranından veya UnixAI ekranından
+  (sohbet kartı, MorpheusAI sekmesi, dashboard bandı) verilir. UnixAI onayı kişinin adıyla (`X-Approved-By`) aktarır; bunun için
+  MorpheusAI token'ı **"Onay aktarabilir"** işaretli olmalı. MCP'de onay aracı yoktur; ajanlar onay veremez ve sunucuya uygulayamaz.
+  Onaydan sonra check otomatik başlar; check başarılıysa kişi **Sunucuya uygula** der.
 
 ## Doğrulama
 

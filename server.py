@@ -424,6 +424,8 @@ class Handler(BaseHTTPRequestHandler):
                 return j(200, morpheus.test())
             except ApiError as e:
                 return j(200, {"ok": False, "error": str(e)})
+        if route == "GET /api/approvals":
+            return j(200, {"items": morpheus.pending(), "integration": morpheus.status()})
         if route == "GET /api/remediations":
             return j(200, {"items": morpheus.list_records(qs.get("server"), refresh_pending=qs.get("refresh") != "0"), "integration": morpheus.status()})
         if route == "POST /api/remediations":
@@ -508,6 +510,15 @@ class Handler(BaseHTTPRequestHandler):
         m = re.match(r"^/api/remediations/([\w-]+)$", path)
         if method == "GET" and m:
             return j(200, morpheus.refresh(m.group(1)))
+        m = re.match(r"^/api/remediations/([\w-]+)/(approve|reject|launch)$", path)
+        if method == "POST" and m:
+            # Onay yalnızca bir kişiden: API/MCP token'ları (ajanlar, otomasyon) onay veremez
+            if (session and session.get("isApi")) or re.match(r"^Bearer\s", self.headers.get("authorization") or "", re.I):
+                return j(403, {"error": "Playbook onayı yalnızca UnixAI arayüzünden bir kişi tarafından verilebilir"})
+            if not who.get("isAdmin"):
+                return j(403, {"error": "Onay için yönetici yetkisi gerekiyor"})
+            action = m.group(2) if m.group(2) != "launch" else ("run" if body.get("mode") == "run" else "check")
+            return j(200, morpheus.decide(m.group(1), action, who["user"], body))
         m = re.match(r"^/api/runs/([^/]+)$", path)
         if method == "GET" and m:
             r = runs.get(unquote(m.group(1)))
