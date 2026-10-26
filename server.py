@@ -464,6 +464,8 @@ class Handler(BaseHTTPRequestHandler):
                 return j(200, morpheus.test())
             except ApiError as e:
                 return j(200, {"ok": False, "error": str(e)})
+        if route == "GET /api/morpheus/tasks":
+            return j(200, {"items": morpheus.tasks(qs.get("server") or None), "integration": morpheus.status()})
         if route == "GET /api/approvals":
             return j(200, {"items": morpheus.pending(), "integration": morpheus.status()})
         if route == "GET /api/remediations":

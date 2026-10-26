@@ -47,6 +47,7 @@ CATEGORIES = {
     "mcp-sunucu": "Gelen MCP çağrıları (/mcp)",
     "ajan": "Ajan adımları",
     "ajanlar-arasi": "Ajanlar arası konuşmalar",
+    "canli": "Canlı akış (ajan trafiği, görev akışı)",
 }
 SERVICE_CATEGORY = {"mcp": "mcp-istemci"}
 _lock = threading.Lock()

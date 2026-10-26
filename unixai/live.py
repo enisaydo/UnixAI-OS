@@ -7,6 +7,7 @@ Olay türleri (her olayda id, type, time):
   step   ajanın araç adımı     conversation, tool, where, phase=start|end, ok, durationMs, hop, origin, rid
 
 Bellekte son 300 olay tutulur; yeni bağlanan istemci son 40 olayı (veya Last-Event-ID'den sonrasını) alır.
+Olaylar logs/canli/ dosyasına da yazılır (GET durum sorguları hariç); servis yeniden başlayınca son olaylar oradan yüklenir.
 Parola/token gönderilmez; argümanlar logger maskesiyle kısaltılır.
 """
 from __future__ import annotations
@@ -53,7 +54,36 @@ def publish(type_: str, **data) -> dict:
         ev = {"id": _seq, "type": type_, "time": iso_now(), **{k: v for k, v in data.items() if v is not None and k not in ("id", "type")}}
         _buf.append(ev)
         _cond.notify_all()
+    if not (type_ == "http" and data.get("method") == "GET") and not data.get("replay"):
+        from . import oplog
+
+        oplog.write_entry("canli", {**ev, "category": "canli"})
     return ev
+
+
+def _preload() -> None:
+    """Servis yeniden başladığında son canlı olayları (bugün + dün) belleğe al"""
+    global _seq
+    try:
+        from datetime import date, timedelta
+
+        from . import oplog
+
+        rows = []
+        for d in ((date.today() - timedelta(days=1)).isoformat(), date.today().isoformat()):
+            try:
+                rows += [json.loads(l) for l in oplog.file_of("canli", d).read_text(encoding="utf-8").splitlines()[-300:] if l.strip()]
+            except (OSError, ValueError):
+                pass
+        for r in rows[-300:]:
+            _seq += 1
+            r.pop("category", None)
+            _buf.append({**r, "id": _seq})
+    except Exception as e:  # geçmiş yüklenemezse canlı akış yine çalışır
+        print(f"[canlı] geçmiş yüklenemedi: {e}", flush=True)
+
+
+_preload()
 
 
 def stream(handler, last_id: int | None) -> None:

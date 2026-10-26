@@ -359,6 +359,13 @@ def main():
         stages = [e["stage"] for e in rem_ux]
         check(all(x in stages for x in ("generated", "approved", "commit", "template", "launch")),
               f"UnixAI canlı: MorpheusAI düzeltme akışı aktarıldı (AKIŞ: {' → '.join(dict.fromkeys(stages))})")
+        tk = call(UX, "/morpheus/tasks")["items"]
+        td = call(UX, f"/remediations/{rid}")
+        check(any(x["id"] == rid and x["server"] == "rhel-db01" and x["score"] == 95 for x in tk) and len(td["events"]) >= 6 and td["playbook"],
+              f"Geçmiş · Görevler: MorpheusAI'deki görevler UnixAI'de listeleniyor ({len(tk)} görev), zaman çizelgesi {len(td['events'])} olay")
+        cats_ux = {c["category"]: c for c in call(UX, "/oplogs")["categories"]}
+        cats_mp = {c["category"]: c for c in call(MP, "/oplogs")["categories"]}
+        check(cats_ux["canli"]["files"] and cats_mp["canli"]["files"], "canlı akış kalıcı: logs/canli/ iki uygulamada da yazıldı (yeniden başlayınca geri yüklenir)")
         au = [x for x in call(UX, "/audit")["records"] if "Playbook" in str(x.get("action", ""))]
         check(len(au) >= 3, "onay, tekrar deneme ve uygulama İşlem Kayıtları'na düştü")
         print("\n[Log dosyaları]")

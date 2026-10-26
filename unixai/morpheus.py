@@ -209,7 +209,9 @@ def refresh(rem_id: str) -> dict:
             rows.append(rec)
         _merge(rec, r)
         _save_records(rows)
-    return {**rec, "playbook": r.get("playbook"), "events": r.get("events", [])[-10:], "jobs": r.get("jobs", []),
+    return {**rec, "playbook": r.get("playbook"), "events": r.get("events", [])[-100:], "jobs": r.get("jobs", []),
+            "finding": r.get("finding"), "compliance": {"score": (r.get("compliance") or {}).get("score"), "findings": len((r.get("compliance") or {}).get("findings") or [])},
+            "source": r.get("source"), "createdAt": r.get("createdAt"), "requestedBy": r.get("requestedBy"),
             "requireCheck": r.get("requireCheck", True)}
 
 
@@ -311,6 +313,15 @@ def auto_send(results: list, user="zamanlayıcı") -> list:
 #  Gelen 'rem' olayları UnixAI'nin canlı akışına aktarılır: CANLI panelde AKIŞ satırları, evrende hareket
 # ------------------------------------------------------------------
 _relay = {"connected": False, "error": None, "since": None}
+
+
+def tasks(server=None, limit=200) -> list:
+    """MorpheusAI'deki tüm düzeltme görevleri (UnixAI'den gönderilen ve ajanlar arası konuşmada üretilen)"""
+    q = f"?limit={int(limit)}" + (f"&server={server}" if server else "")
+    items = (_call("GET", "/remediations" + q, kind="morpheus-tasks") or {}).get("items", [])
+    return [{**x, "url": link(x["id"]), "server": (x.get("server") or {}).get("name") if isinstance(x.get("server"), dict) else x.get("server"),
+             "target": (x.get("server") or {}).get("target") if isinstance(x.get("server"), dict) else x.get("target"),
+             "score": (x.get("compliance") or {}).get("score"), "title": x.get("title") or (x.get("finding") or {}).get("title")} for x in items]
 
 
 def relay_status() -> dict:
