@@ -26,7 +26,7 @@ from unixai.env import ROOT, env, load_env
 
 load_env()
 
-from unixai import (a2a, agent, oplog, analyzer, audit, auth, collector, connection, demo, diagnostics, genai, inventory,  # noqa: E402
+from unixai import (a2a, agent, live, oplog, analyzer, audit, auth, collector, connection, demo, diagnostics, genai, inventory,  # noqa: E402
                     logger, mcp_hub, morpheus, prompts, runs, settings, usage)
 from unixai.errors import ApiError  # noqa: E402
 
@@ -219,10 +219,28 @@ class Handler(BaseHTTPRequestHandler):
         if msg is None:
             return self.send_json(400, {"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "Parse error"}}, cors)
         t0 = time.monotonic()
+
+        def one(m):
+            """Tek JSON-RPC mesajı; canlı akışa başla/bitti olayı yazılır"""
+            meth = m.get("method") if isinstance(m, dict) else None
+            show = bool(meth) and not str(meth).startswith("notifications/")
+            p = (m.get("params") or {}) if isinstance(m, dict) else {}
+            r_id, ts = live.rid(), time.monotonic()
+            if show:
+                live.publish("mcp", dir="gelen", peer=principal["client"], method=meth, tool=p.get("name"),
+                             args=live.args_preview(p.get("arguments")) if meth == "tools/call" else None, phase="start", rid=r_id)
+            r = mcp_hub.handle_rpc(m, principal)
+            if show:
+                bad = isinstance(r, dict) and (bool((r.get("result") or {}).get("isError")) or "error" in r)
+                live.publish("mcp", dir="gelen", peer=principal["client"], method=meth, tool=p.get("name"), phase="end", rid=r_id, ok=not bad,
+                             durationMs=int((time.monotonic() - ts) * 1000),
+                             error=live.short(((r.get("error") or {}).get("message") or ((r.get("result") or {}).get("content") or [{}])[0].get("text")), 200) if bad else None)
+            return r
+
         if isinstance(msg, list):
-            out = [r for r in (mcp_hub.handle_rpc(m, principal) for m in msg) if r]
+            out = [r for r in (one(m) for m in msg) if r]
         else:
-            out = mcp_hub.handle_rpc(msg, principal)
+            out = one(msg)
         for m, r in zip(msg if isinstance(msg, list) else [msg], out if isinstance(out, list) else [out]):
             if isinstance(m, dict) and m.get("method") and not str(m["method"]).startswith("notifications/"):
                 p = m.get("params") or {}
@@ -270,6 +288,9 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(502, {"error": str(e)})
         finally:
             self.audit(url.path)
+            if url.path.startswith("/api/") and url.path != "/api/live" and re.match(r"^Bearer\s", self.headers.get("authorization") or "", re.I):
+                live.publish("http", dir="gelen", peer=(self.headers.get("x-unixai-client") or "api")[:40], method=self.command, path=url.path,
+                             status=self._status, ok=(self._status or 500) < 400, durationMs=int((time.monotonic() - self._t0) * 1000))
 
     def audit(self, path):
         """Durum değiştiren API istekleri ve sunucu hataları İşlem Kayıtları'na yazılır"""
@@ -421,6 +442,9 @@ class Handler(BaseHTTPRequestHandler):
             return j(200, mcp_hub.connections_view())
         if route == "POST /api/mcp/connections":
             return j(200, mcp_hub.save_connection(body, who["user"]))
+        if route == "GET /api/live":  # canlı akış (SSE) — bağlantı açık kaldıkça bu iş parçacığı bekler
+            last = self.headers.get("last-event-id") or qs.get("since")
+            return live.stream(self, int(last) if str(last or "").isdigit() else None)
         if route == "GET /api/a2a":
             return j(200, a2a.query(qs.get("server"), qs.get("peer")))
         if route == "GET /api/oplogs":

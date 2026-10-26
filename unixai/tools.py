@@ -105,15 +105,22 @@ def agent_ask(a, ctx):
     peer = c.get("from") or ctx.get("client") or "mcp"
     server = a2a.detect_server(a.get("question"), explicit=a.get("server"))
     t0 = time.monotonic()
+    from . import live
+
+    r_id = live.rid()
+    live.publish("a2a", dir="gelen", peer=peer, question=live.short(a.get("question"), 400), server=server, phase="start", rid=r_id)
     try:
         r = _agent_run(agent, a, ctx, c)
     except Exception as e:
+        live.publish("a2a", dir="gelen", peer=peer, phase="end", rid=r_id, ok=False, error=live.short(str(e), 300), durationMs=int((time.monotonic() - t0) * 1000))
         a2a.record("gelen", peer, a.get("question"), server=server, remote_conversation_id=c.get("conversation_id"), ok=False, error=e,
                    duration_ms=int((time.monotonic() - t0) * 1000), user=ctx.get("user"))
         raise
     a2a.record("gelen", peer, a.get("question"), r["reply"], server=server, conversation_id=r["conversationId"],
                remote_conversation_id=c.get("conversation_id"), tools=[t["tool"] for t in r["trace"] if t.get("tool")],
                duration_ms=int((time.monotonic() - t0) * 1000), user=ctx.get("user"))
+    live.publish("a2a", dir="gelen", peer=peer, phase="end", rid=r_id, ok=True, answer=live.short(r["reply"], 400), server=server,
+                 durationMs=int((time.monotonic() - t0) * 1000), tools=[t["tool"] for t in r["trace"] if t.get("tool")])
     return {"answer": r["reply"], "conversationId": r["conversationId"], "steps": len(r["trace"]),
             "tools_used": [t["tool"] for t in r["trace"] if t.get("tool")], "server": server}
 

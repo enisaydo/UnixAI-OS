@@ -373,7 +373,18 @@ def remote_tools(include_agent: bool = True) -> list:
 
 
 def call_remote(conn: dict, tool: str, args: dict):
-    r = client(conn).call(tool, args)
+    from . import live
+
+    r_id, t0 = live.rid(), time.monotonic()
+    live.publish("mcp", dir="giden", peer=conn["name"], method="tools/call", tool=tool, args=live.args_preview(args), phase="start", rid=r_id)
+    try:
+        r = client(conn).call(tool, args)
+    except Exception as e:
+        live.publish("mcp", dir="giden", peer=conn["name"], method="tools/call", tool=tool, phase="end", rid=r_id, ok=False,
+                     durationMs=int((time.monotonic() - t0) * 1000), error=live.short(str(e), 200))
+        raise
+    live.publish("mcp", dir="giden", peer=conn["name"], method="tools/call", tool=tool, phase="end", rid=r_id, ok=not r.get("isError"),
+                 durationMs=int((time.monotonic() - t0) * 1000))
     if r.get("structuredContent") is not None:
         data = r["structuredContent"]
     else:

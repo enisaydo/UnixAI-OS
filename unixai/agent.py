@@ -18,7 +18,7 @@ import threading
 import time
 import uuid
 
-from . import oplog
+from . import live, oplog
 from . import a2a, genai, mcp_hub, prompts, tools, usage
 from .errors import ApiError
 from .store import file, iso_now, read_json, write_json
@@ -155,15 +155,20 @@ def _exec(name: str, args: dict, ts: dict, ctx: dict, conv_id: str, hop: int):
         args["server"] = server
     base = re.sub(r"/mcp/?$", "", t["conn"]["url"])
     t0 = time.monotonic()
+    r_id = live.rid()
+    live.publish("a2a", dir="giden", peer=peer, question=live.short(q, 400), server=server, phase="start", rid=r_id)
     try:
         res = mcp_hub.call_remote(t["conn"], t["tool"], args)
     except Exception as e:
+        live.publish("a2a", dir="giden", peer=peer, phase="end", rid=r_id, ok=False, error=live.short(str(e), 300), durationMs=int((time.monotonic() - t0) * 1000))
         a2a.record("giden", peer, q, server=server, conversation_id=conv_id, ok=False, error=e,
                    duration_ms=int((time.monotonic() - t0) * 1000), user=ctx.get("user"))
         raise
     d = res if isinstance(res, dict) else {"answer": str(res)}
     rems = [{**x, "url": f"{base}/#/remediations/{x.get('id')}"} for x in d.get("remediations") or [] if isinstance(x, dict)]
     ctx.setdefault("_rems", []).extend(rems)
+    live.publish("a2a", dir="giden", peer=peer, phase="end", rid=r_id, ok=True, answer=live.short(d.get("answer"), 400), server=server,
+                 remediations=len(rems), durationMs=int((time.monotonic() - t0) * 1000), tools=d.get("tools_used"))
     a2a.record("giden", peer, q, d.get("answer"), server=server or next((x.get("server") for x in rems if x.get("server")), None),
                conversation_id=conv_id, remote_conversation_id=d.get("conversationId"), remediations=rems, tools=d.get("tools_used"),
                duration_ms=int((time.monotonic() - t0) * 1000), user=ctx.get("user"))
@@ -249,6 +254,9 @@ def run(messages: list, context=None, ctx=None, hop: int = 0, conversation_id=No
             for cid, name, args in calls:
                 t0 = time.monotonic()
                 entry = {"step": step, "type": "tool", "tool": name, "args": args, "remoteAgent": bool(ts.get(name, {}).get("agent"))}
+                s_id = live.rid()
+                live.publish("step", conversation=conv["id"], tool=name, phase="start", rid=s_id, hop=hop, origin=conv.get("origin"),
+                             where=ts.get(name, {}).get("conn", {}).get("name") if ts.get(name, {}).get("kind") == "remote" else "yerel")
                 try:
                     result, where = _exec(name, args, ts, {**ctx, "source": ctx.get("source") or AGENT_NAME}, conv["id"], hop)
                     text = _short(result)
@@ -258,6 +266,8 @@ def run(messages: list, context=None, ctx=None, hop: int = 0, conversation_id=No
                     entry.update(where=ts.get(name, {}).get("conn", {}).get("name") if ts.get(name, {}).get("kind") == "remote" else "local", ok=False, error=str(e)[:500])
                 entry["durationMs"] = int((time.monotonic() - t0) * 1000)
                 conv["trace"].append(entry)
+                live.publish("step", conversation=conv["id"], tool=name, phase="end", rid=s_id, ok=entry.get("ok") is not False,
+                             durationMs=entry["durationMs"], error=live.short(entry.get("error"), 200), hop=hop)
                 oplog.log("ajan", f"Araç: {name}", user=ctx.get("user"), conversation=conv["id"], step=step, where=entry.get("where"), durationMs=entry["durationMs"],
                           ok=entry.get("ok") is not False, error=entry.get("error"), origin=conv.get("origin"), hop=hop, quiet=True)
                 if mode == "native":

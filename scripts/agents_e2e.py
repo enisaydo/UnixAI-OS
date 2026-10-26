@@ -207,6 +207,19 @@ def call(port, path, body=None, method=None, token=None, headers=None):
     return json.loads(r.read())
 
 
+def sse_collect(port, sink):
+    """GET /api/live akışını okur (canlı olaylar)"""
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/live", timeout=120) as r:
+            sink.append({"type": "_open", "ctype": r.headers.get("content-type")})
+            for raw in r:
+                line = raw.decode("utf-8").rstrip("\n")
+                if line.startswith("data: "):
+                    sink.append(json.loads(line[6:]))
+    except Exception as e:  # süreç kapanınca biter
+        sink.append({"type": "_error", "error": str(e)})
+
+
 def main():
     for port, h in ((GW, Gateway), (AAP, FakeAAP), (BB, FakeBitbucket)):
         threading.Thread(target=ThreadingHTTPServer(("127.0.0.1", port), h).serve_forever, daemon=True).start()
@@ -240,6 +253,12 @@ def main():
         t1, t2 = call(UX, f"/mcp/connections/{c1['id']}/test", {}), call(MP, f"/mcp/connections/{c2['id']}/test", {})
         check(t1["ok"] and t2["ok"], f"iki yönlü MCP bağlantısı: UnixAI→MorpheusAI ({len(t1['tools'])} araç), MorpheusAI→UnixAI ({len(t2['tools'])} araç)")
 
+        live_ux, live_mp = [], []
+        for port, sink in ((UX, live_ux), (MP, live_mp)):
+            threading.Thread(target=sse_collect, args=(port, sink), daemon=True).start()
+        time.sleep(0.8)
+        check(live_ux[:1] and "text/event-stream" in (live_ux[0].get("ctype") or "") and live_mp[:1] and "text/event-stream" in (live_mp[0].get("ctype") or ""),
+              "canlı akış (SSE /api/live) iki uygulamada da açık")
         print("\n[Ajanlar konuşuyor]")
         r = call(UX, "/chat", {"messages": [{"role": "user", "content": "rhel-db01'in P1 bulgusunu doğrula ve MorpheusAI'den düzeltme iste"}]})
         tr = r["trace"]
@@ -260,6 +279,29 @@ def main():
               "düzeltme kaydı: uyum 95, onay bekliyor")
         uconv = call(UX, f"/agent/conversations/{r['conversationId']}")
         check(uconv["trace"][1]["result"] and "rem-" in uconv["trace"][1]["result"], "UnixAI konuşma kaydında MorpheusAI ajanının cevabı saklandı")
+        print("\n[Canlı akış]")
+        time.sleep(0.5)
+
+        def has(evs, **kw):
+            return [e for e in evs if all(e.get(k) == v for k, v in kw.items())]
+        ux_a2a = has(live_ux, type="a2a", dir="giden", peer="morpheusai")
+        check(len(ux_a2a) == 2 and ux_a2a[0]["phase"] == "start" and "u01" in ux_a2a[0].get("question", "") and ux_a2a[1]["phase"] == "end" and ux_a2a[1]["ok"]
+              and ux_a2a[1]["rid"] == ux_a2a[0]["rid"] and ux_a2a[1].get("remediations") == 1,
+              "UnixAI canlı: MorpheusAI'ye soru başladı → cevap geldi (1 playbook) aynı olay kimliğiyle")
+        check(has(live_ux, type="mcp", dir="giden", tool="morpheus_agent_ask", phase="start")
+              and has(live_ux, type="mcp", dir="gelen", peer="morpheusai", tool="unixai_get_server_findings", phase="end", ok=True),
+              "UnixAI canlı: giden MCP morpheus_agent_ask ve MorpheusAI'den gelen unixai_get_server_findings")
+        check([e["tool"] for e in has(live_ux, type="step", phase="start")][:2] == ["unixai_get_server_findings", "morpheusai__morpheus_agent_ask"],
+              "UnixAI canlı: ajan adımları sırayla")
+        mp_a2a = has(live_mp, type="a2a", dir="gelen")
+        check(len(mp_a2a) == 2 and mp_a2a[0]["phase"] == "start" and mp_a2a[1].get("remediations") == 1 and mp_a2a[0]["peer"] == "unixai-os",
+              "MorpheusAI canlı: UnixAI'den gelen soru → cevap (1 playbook)")
+        mp_steps = [e["tool"] for e in has(live_mp, type="step", phase="start")]
+        check(mp_steps[:3] == ["unixai__unixai_get_server_findings", "morpheus_create_remediation", "morpheus_launch_remediation"]
+              and has(live_mp, type="mcp", dir="gelen", tool="morpheus_agent_ask", phase="start") and has(live_mp, type="mcp", dir="giden", tool="unixai_get_server_findings"),
+              "MorpheusAI canlı: gelen MCP → ajan adımları (UnixAI'ye veri sorusu, playbook üretimi) görünüyor")
+        order = [e["id"] for e in live_mp if e.get("type") in ("mcp", "a2a", "step")]
+        check(order == sorted(order) and "Bearer" not in json.dumps(live_ux + live_mp), "olaylar sıralı, token sızmıyor")
         print("\n[Ajanlar arası konuşma kaydı]")
         ua = call(UX, "/a2a")["items"]
         check(len(ua) == 1 and ua[0]["direction"] == "giden" and ua[0]["peer"] == "morpheusai" and ua[0]["server"] == "rhel-db01",
@@ -304,6 +346,10 @@ def main():
         check(call(UX, f"/remediations/{rid}")["status"] == "check_ok", "check başarılı (durum MorpheusAI'den yenilendi)")
         run = call(UX, f"/remediations/{rid}/launch", {"mode": "run"}, headers={"x-unixai-user": "EnisA"})
         check(len(seen["aap"]) == 2 and seen["aap"][1]["job_type"] == "run" and run["status"] == "running", "kişi UnixAI'den 'Sunucuya uygula' dedi → AAP run")
+        time.sleep(0.4)
+        check(has(live_ux, type="http", dir="giden", method="POST", path=f"/api/remediations/{rid}/approve", status=200)
+              and [e for e in has(live_mp, type="http", dir="gelen", path=f"/api/remediations/{rid}/approve") if e.get("by") == "EnisA"],
+              "canlı: onay isteği UnixAI'den giden ve MorpheusAI'ye gelen REST olarak (onaylayan EnisA) göründü")
         au = [x for x in call(UX, "/audit")["records"] if "Playbook" in str(x.get("action", ""))]
         check(len(au) >= 3, "onay, tekrar deneme ve uygulama İşlem Kayıtları'na düştü")
         print("\n[Log dosyaları]")

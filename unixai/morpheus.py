@@ -104,9 +104,19 @@ def _call(method: str, path: str, body=None, kind="morpheus", approved_by=None):
     headers = {"content-type": "application/json", "accept": "application/json", "authorization": f"Bearer {t['token']}", "x-morpheus-client": "unixai-os"}
     if approved_by:
         headers["x-approved-by"] = str(approved_by)[:80]
-    res = request("morpheus", kind, t["url"] + "/api" + path, method=method, headers=headers,
-                  body=json.dumps(body, ensure_ascii=False) if body is not None else None,
-                  insecure_tls=t["insecureTls"], timeout_ms=c.get("timeoutMs", 600000))
+    from . import live
+    import time as _time
+
+    t0 = _time.monotonic()
+    try:
+        res = request("morpheus", kind, t["url"] + "/api" + path, method=method, headers=headers,
+                      body=json.dumps(body, ensure_ascii=False) if body is not None else None,
+                      insecure_tls=t["insecureTls"], timeout_ms=c.get("timeoutMs", 600000))
+    except Exception:
+        live.publish("http", dir="giden", peer="morpheusai", method=method, path="/api" + path, ok=False, durationMs=int((_time.monotonic() - t0) * 1000))
+        raise
+    live.publish("http", dir="giden", peer="morpheusai", method=method, path="/api" + path, status=res["status"], ok=res["status"] < 400,
+                 durationMs=int((_time.monotonic() - t0) * 1000), by=approved_by)
     if res["status"] >= 400:
         msg = (res["json"] or {}).get("error") if isinstance(res["json"], dict) else None
         raise ApiError(f"MorpheusAI {res['status']}: {msg or res['text'][:300]}", 502 if res["status"] >= 500 else res["status"])
