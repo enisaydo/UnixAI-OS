@@ -125,8 +125,24 @@ def explain(stderr: str, server: dict, ssh: dict) -> str:
                 "(veya Ayarlar → SSH → host key politikası: accept-new)")
     if re.search(r"REMOTE HOST IDENTIFICATION HAS CHANGED", s, re.I):
         return f"Host key DEĞİŞMİŞ (yeniden kurulum veya MITM). Doğrulayıp eski kaydı silin: ssh-keygen -R {server['host']}"
+    if re.search(r"UNPROTECTED PRIVATE KEY FILE|bad permissions", s, re.I):
+        return f"Anahtar dosyasının izinleri çok açık, ssh anahtarı kullanmadı. Merkez sunucuda: chmod 600 {key}"
+    if re.search(r"no mutual signature algorithm", s, re.I):
+        return ("Hedefin OpenSSH sürümü çok eski (ör. RHEL 6): yalnızca SHA1 RSA imzası destekliyor, merkezdeki ssh bunu kapatıyor. "
+                "Hedefi güncelleyin veya bu sunucu için ~/.ssh/config'e 'PubkeyAcceptedAlgorithms +ssh-rsa' ekleyin.")
+    if re.search(r"passphrase|Load key .*(invalid format|libcrypto)", s, re.I):
+        return f"Anahtar okunamadı: {key} parolalı veya bozuk. UnixAI parolasız anahtar ister (BatchMode); ssh-keygen -y -f {key} ile kontrol edin."
+    if re.search(r"Too many authentication failures", s, re.I):
+        return "Çok fazla anahtar denendi. Hedefte MaxAuthTries düşük olabilir; doğru anahtar dosyası seçili mi kontrol edin."
     if re.search(r"Permission denied", s, re.I):
-        return f"Yetkilendirme reddedildi. Hedefte {user} kullanıcısının authorized_keys dosyasına UnixAI public key'i ekleyin (Sunucular → SSH anahtarı)."
+        return (f"Yetkilendirme reddedildi ({user}@{server['host']}, anahtar {key}). Hedefte kontrol edin: "
+                f"1) authorized_keys'te bu anahtarın .pub'ı var mı (ssh-keygen -lf {key}.pub ile parmak izini karşılaştırın) "
+                f"2) izinler: chmod 700 ~{user}/.ssh; chmod 600 ~{user}/.ssh/authorized_keys; sahibi {user} "
+                f"3) SELinux etiketi: restorecon -Rv ~{user}/.ssh "
+                "4) sshd: sshd -T | grep -Ei 'permitrootlogin|pubkeyauthentication|allowusers|authorizedkeysfile' "
+                "5) hedefte journalctl -u sshd -n 20 asıl sebebi gösterir.")
+    if re.search(r"kex_exchange_identification|Connection closed by|Connection reset", s, re.I):
+        return f"{server['host']} bağlantıyı kapattı (sshd AllowUsers/AllowGroups, TCP wrappers, firewall veya MaxStartups). Hedefte journalctl -u sshd -n 20."
     if re.search(r"Could not resolve hostname", s, re.I):
         return f"'{server['host']}' adı çözülemedi (DNS)."
     if re.search(r"Connection refused", s, re.I):
