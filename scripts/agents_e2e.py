@@ -34,9 +34,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 MDIR = Path(os.environ.get("MORPHEUS_DIR", ROOT.parent / "MorpheusAI")).resolve()
-GW, AAP, UX, MP, BB, LF = 3951, 3953, 3954, 3955, 3956, 3957
+GW, AAP, UX, MP, BB, LF, PX = 3951, 3953, 3954, 3955, 3956, 3957, 3958
 fails = 0
-seen = {"langfuse": [], "unixai_tools": [], "morpheus_tools": [], "aap": [], "rid": None, "jobs": {}, "bb": {}, "bb_deny": True, "synced": [], "templates": []}
+seen = {"pixel": [], "langfuse": [], "unixai_tools": [], "morpheus_tools": [], "aap": [], "rid": None, "jobs": {}, "bb": {}, "bb_deny": True, "synced": [], "templates": []}
 
 
 def check(c, msg):
@@ -170,6 +170,20 @@ class FakeAAP(BaseHTTPRequestHandler):
         return self.j(200, {"id": jid, "status": seen["jobs"].get(jid, "pending")})
 
 
+class FakePixel(BaseHTTPRequestHandler):
+    """Pixel Agents yerel sunucusunun hook ucu: POST /api/hooks/claude (Bearer token)"""
+    def log_message(self, *a):
+        pass
+
+    def do_POST(self):
+        body = json.loads(self.rfile.read(int(self.headers["content-length"])))
+        seen["pixel"].append({**body, "_ok": self.path == "/api/hooks/claude" and self.headers.get("authorization") == "Bearer px-test"})
+        self.send_response(200)
+        self.send_header("content-length", "2")
+        self.end_headers()
+        self.wfile.write(b"ok")
+
+
 class FakeLangfuse(BaseHTTPRequestHandler):
     """Langfuse OTLP/HTTP JSON alıcısı: POST /api/public/otel/v1/traces"""
     def log_message(self, *a):
@@ -243,7 +257,7 @@ def sse_collect(port, sink):
 
 
 def main():
-    for port, h in ((GW, Gateway), (AAP, FakeAAP), (BB, FakeBitbucket), (LF, FakeLangfuse)):
+    for port, h in ((GW, Gateway), (AAP, FakeAAP), (BB, FakeBitbucket), (LF, FakeLangfuse), (PX, FakePixel)):
         threading.Thread(target=ThreadingHTTPServer(("127.0.0.1", port), h).serve_forever, daemon=True).start()
     ud, md = tempfile.mkdtemp(prefix="ux-e2e-"), tempfile.mkdtemp(prefix="mp-e2e-")
     common = {**os.environ, "PYTHONIOENCODING": "utf-8", "LDAP_SERVER": "", "ADMIN_PASSWORD": "",
@@ -287,6 +301,10 @@ def main():
         time.sleep(0.8)
         check(live_ux[:1] and "text/event-stream" in (live_ux[0].get("ctype") or "") and live_mp[:1] and "text/event-stream" in (live_mp[0].get("ctype") or ""),
               "canlı akış (SSE /api/live) iki uygulamada da açık")
+        bridge = subprocess.Popen(["node", str(ROOT / "integrations" / "pixel-office" / "pixel-bridge.mjs")], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT,
+                                  env={**os.environ, "UNIXAI_URL": f"http://127.0.0.1:{UX}", "MORPHEUS_URL": f"http://127.0.0.1:{MP}",
+                                       "PIXEL_URL": f"http://127.0.0.1:{PX}", "PIXEL_TOKEN": "px-test"})
+        time.sleep(1.5)
         print("\n[Ajanlar konuşuyor]")
         r = call(UX, "/chat", {"messages": [{"role": "user", "content": "rhel-db01'in P1 bulgusunu doğrula ve MorpheusAI'den düzeltme iste"}]})
         tr = r["trace"]
@@ -427,6 +445,22 @@ def main():
               "UnixAI: islem, morpheus, genai, mcp-istemci, mcp-sunucu, ajan, ajanlar-arasi ayrı dosyalarda")
         call(UX, "/chat", {"messages": [{"role": "user", "content": "rhel-db01 nasıl?"}], "agent": False})
         check(len(call(UX, "/a2a")["items"]) == 1, "kullanıcı sohbetleri ajanlar arası kayda karışmıyor")
+        print("\n[Pixel Office köprüsü]")
+        time.sleep(1)
+        px = seen["pixel"]
+        def ev(sess, name, **kw):
+            return [e for e in px if e.get("session_id") == sess and e.get("hook_event_name") == name and all(e.get(k) == v for k, v in kw.items())]
+        check(px and all(e["_ok"] for e in px), f"köprü Pixel Agents hook ucuna Bearer token ile gönderdi ({len(px)} olay)")
+        check(ev("unixai-os-ajani", "SessionStart", cwd="/pixel-office/UnixAI") and ev("morpheusai-ajani", "SessionStart", cwd="/pixel-office/MorpheusAI"),
+              "ofiste iki karakter: UnixAI ve MorpheusAI (SessionStart)")
+        ask = [e for e in ev("unixai-os-ajani", "PreToolUse", tool_name="Agent") if "MorpheusAI'ye soruyor" in e["tool_input"]["description"]]
+        q = [e for e in ev("morpheusai-ajani", "PreToolUse", tool_name="Agent") if e["tool_input"]["description"].startswith("UnixAI'den soru:")]
+        check(ask and ask[0]["tool_input"]["run_in_background"] and q, "UnixAI 'MorpheusAI'ye soruyor', MorpheusAI 'UnixAI'den soru' (arka plan alt görevi)")
+        check(ev("morpheusai-ajani", "PreToolUse", tool_name="Agent", tool_input={"description": "Playbook yazıyor", "run_in_background": True})
+              and ev("morpheusai-ajani", "PermissionRequest"), "MorpheusAI 'Playbook yazıyor' → onay bekliyor (izin balonu)")
+        check(any("git commit" in str(e.get("tool_input", {}).get("command", "")) for e in ev("morpheusai-ajani", "PreToolUse", tool_name="Bash"))
+              and ev("morpheusai-ajani", "Stop"), "onay sonrası Bitbucket commit / AAP adımları ve 'Done'")
+        bridge.kill()
         if os.environ.get("E2E_KEEP"):  # arayüzü incelemek için süreçleri açık tut
             print(f"Arayüzler: UnixAI http://127.0.0.1:{UX}  ·  MorpheusAI http://127.0.0.1:{MP}", flush=True)
             time.sleep(int(os.environ["E2E_KEEP"]))

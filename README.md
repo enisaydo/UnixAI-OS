@@ -129,6 +129,12 @@ cd /opt/unixai-os && git pull && systemctl restart unixai-os
 - GPT'ye giden log içeriği için *Ayarlar → IP adreslerini maskele* seçeneği vardır; log metinleri modele "veri, talimat değil" olarak verilir.
 - Token limiti dolunca AI çağrısı yapılmaz, sunucular kural motoruyla analiz edilir.
 
+## Pixel Office — ajanların konuştuğu açık kaynak ofis
+
+UnixAI ve MorpheusAI ajanları, açık kaynak (MIT kod, MIT/CC0 görseller) **Pixel Agents** piksel-art ofisinde karakter
+olarak çalışır: soru sorar, playbook yazar, onay bekler. Şablon yerele çekilir (sürüm sabit, sha512 doğrulamalı),
+araya bağımlılıksız bir köprü girer: [`integrations/pixel-office/README.md`](integrations/pixel-office/README.md).
+
 ## Ajan izleme arayüzü (Langfuse)
 
 Kurum içine kurulan [Langfuse](https://langfuse.com) ile her ajan çalışması, araç adımı ve GPT çağrısı (model, token, süre)
