@@ -2,12 +2,20 @@
 
 UnixAI OS ve MorpheusAI ajanları, açık kaynak **[Pixel Agents](https://github.com/pixel-agents-hq/pixel-agents)**
 ofisinde piksel-art karakterler olarak çalışır: masalarında yazar, okur, birbirine soru sorar, playbook yazar,
-onay bekler. Şablon yerele çekilip orada çalışır; Pixel Agents'ın koduna dokunulmaz, araya yalnızca bu klasördeki
-**köprü** (`pixel-bridge.mjs`, bağımlılıksız) girer.
+onay bekler. Şablon her makineye yerel olarak çekilir; Pixel Agents'ın koduna dokunulmaz.
+
+**Köprü gerekmez:** UnixAI ve MorpheusAI, işledikleri her GET/POST, MCP çağrısı ve ajan adımında **aynı makinedeki**
+Pixel Agents ofisine doğrudan olay gönderir (`.env`: `PIXEL_OFFICE=true`). Pixel Agents dışarıdan yalnızca kendi hook
+biçimini (`POST /api/hooks/claude` + kendi token'ı) kabul ettiği için çeviri uygulamaların içinde yapılır; token aynı
+makinede `~/.pixel-agents/` altından otomatik bulunur.
 
 ```
-UnixAI / MorpheusAI canlı akışı (SSE /api/live) ──► pixel-bridge.mjs ──► Pixel Agents yerel sunucusu (POST /api/hooks/claude)
+Makine A:  UnixAI OS ──(PIXEL_OFFICE=true)──► Pixel Agents (yerel)      ofiste: UnixAI + MorpheusAI karakterleri
+Makine B:  MorpheusAI ──(PIXEL_OFFICE=true)──► Pixel Agents (yerel)     ofiste: UnixAI + MorpheusAI karakterleri
 ```
+
+İsteğe bağlı: iki uygulamayı **üçüncü bir makinedeki tek ortak ofiste** görmek isterseniz `pixel-bridge.mjs`
+(bağımlılıksız) iki uygulamanın canlı akışını okuyup o ofise gönderir — bkz. en alttaki bölüm.
 
 ## Lisans (ücretsiz, açık kaynak)
 
@@ -47,22 +55,23 @@ kitaplık, kahve, bitki… Düzeni JSON olarak dışa/içe aktarabilirsiniz.
 Ekipten başkaları izleyecekse: `./baslat.sh --host 0.0.0.0 --allowed-host ofis.kurum.local`. `?token=` içeren adres
 gizlidir; tokensız adres yalnızca izleme verir.
 
-## 3) Köprüyü başlatın (Pixel Agents ile aynı makinede)
+## 3) Uygulamada açın (her makinede)
 
-```bash
-UNIXAI_URL=http://unixai.kurum.local:8080 \
-MORPHEUS_URL=http://morpheus.kurum.local:3000 \
-node ~/pixel-office/pixel-bridge.mjs
+UnixAI makinesinde UnixAI `.env`'ine, MorpheusAI makinesinde MorpheusAI `.env`'ine ekleyip servisi yeniden başlatın:
+
+```env
+PIXEL_OFFICE=true
+# Pixel Agents aynı makinede ve aynı kullanıcıyla (ör. root) çalışıyorsa bu ikisi boş kalabilir (otomatik bulunur):
+PIXEL_URL=
+PIXEL_TOKEN=
 ```
 
-| Değişken | Açıklama |
-|---|---|
-| `UNIXAI_URL`, `UNIXAI_TOKEN` | UnixAI adresi; giriş (LDAP) açıksa `.env`'deki `UNIXAI_API_TOKEN` |
-| `MORPHEUS_URL`, `MORPHEUS_TOKEN` | MorpheusAI (isteğe bağlı); giriş açıksa `MORPHEUS_API_TOKEN`. Verilmezse Morpheus'un düzeltme akışı UnixAI üzerinden gelir |
-| `PIXEL_URL`, `PIXEL_TOKEN` | Boşsa `~/.pixel-agents/servers/*.json`'dan otomatik bulunur |
-| `NODE_EXTRA_CA_CERTS` | kurum içi HTTPS sertifikası (ör. `/etc/pki/tls/certs/ca-bundle.crt`) |
-
-Köprü bağlantı koparsa kendiliğinden yeniden bağlanır; açılırken gelen eski olayları canlandırmaz.
+- Uygulama Podman container'ında çalışıyorsa container host'un `127.0.0.1`'ine erişemez. Pixel Agents'ı host
+  arayüzünde açın (`./baslat.sh --host 0.0.0.0`; 3100 portunu firewall'da dışarıya **açmayın**) ve uygulamaya
+  `PIXEL_URL=http://host.containers.internal:3100` ile host'taki `~/.pixel-agents/servers/*.json` içindeki
+  `token` değerini `PIXEL_TOKEN` olarak verin. Hook ucu token'sız isteği reddeder.
+- Durum: `GET /api/pixel/status` (açık mı, gönderilen/başarısız olay sayısı, son hata).
+- Pixel Agents kapalıysa uygulamalar etkilenmez.
 
 ## Ofiste ne görürsünüz
 
@@ -80,3 +89,15 @@ Köprü bağlantı koparsa kendiliğinden yeniden bağlanır; açılırken gelen
 
 Not: Pixel Agents Claude Code'u da tanır; makinede Claude Code kullanılıyorsa onlar da ofiste görünebilir.
 Köprü yalnızca olay gönderir; Pixel Agents'tan komut almaz, hiçbir şey çalıştırmaz.
+
+## İsteğe bağlı: tek ortak ofis (üçüncü makine, köprü)
+
+```bash
+UNIXAI_URL=http://unixai.kurum.local:8080 MORPHEUS_URL=http://morpheus.kurum.local:3000 node ~/pixel-office/pixel-bridge.mjs
+```
+
+| Değişken | Açıklama |
+|---|---|
+| `UNIXAI_URL`, `UNIXAI_TOKEN` | UnixAI adresi; giriş (LDAP) açıksa `.env`'deki `UNIXAI_API_TOKEN` |
+| `MORPHEUS_URL`, `MORPHEUS_TOKEN` | MorpheusAI (isteğe bağlı); giriş açıksa `MORPHEUS_API_TOKEN` |
+| `PIXEL_URL`, `PIXEL_TOKEN` | boşsa `~/.pixel-agents/servers/*.json`'dan otomatik |

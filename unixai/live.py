@@ -58,6 +58,12 @@ def publish(type_: str, **data) -> dict:
         from . import oplog
 
         oplog.write_entry("canli", {**ev, "category": "canli"})
+    try:
+        from . import pixel  # yerel Pixel Agents ofisi (PIXEL_OFFICE=true ise)
+
+        pixel.on_event(ev)
+    except Exception as e:  # ofis hatası canlı akışı bozmasın
+        print(f"[pixel] {e}", flush=True)
     return ev
 
 

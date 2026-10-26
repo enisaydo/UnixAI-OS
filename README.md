@@ -133,7 +133,8 @@ cd /opt/unixai-os && git pull && systemctl restart unixai-os
 
 UnixAI ve MorpheusAI ajanları, açık kaynak (MIT kod, MIT/CC0 görseller) **Pixel Agents** piksel-art ofisinde karakter
 olarak çalışır: soru sorar, playbook yazar, onay bekler. Şablon yerele çekilir (sürüm sabit, sha512 doğrulamalı),
-araya bağımlılıksız bir köprü girer: [`integrations/pixel-office/README.md`](integrations/pixel-office/README.md).
+`.env`'de `PIXEL_OFFICE=true` olunca UnixAI aynı makinedeki ofise olayları doğrudan gönderir (köprü gerekmez):
+[`integrations/pixel-office/README.md`](integrations/pixel-office/README.md).
 
 ## Ajan izleme arayüzü (Langfuse)
 

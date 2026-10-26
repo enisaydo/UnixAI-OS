@@ -464,6 +464,10 @@ class Handler(BaseHTTPRequestHandler):
                 return j(200, morpheus.test())
             except ApiError as e:
                 return j(200, {"ok": False, "error": str(e)})
+        if route == "GET /api/pixel/status":
+            from unixai import pixel
+
+            return j(200, pixel.status())
         if route == "GET /api/tracing/status":
             return j(200, tracing.status())
         if route == "GET /api/morpheus/tasks":
@@ -610,6 +614,9 @@ def main():
                                 if au["enabled"] else "KAPALI — .env'de ADMIN_PASSWORD veya LDAP_SERVER tanımlayın!") + "\n", flush=True)
     runs.start_scheduler()
     morpheus.start_relay()  # MorpheusAI düzeltme akışı → canlı panel / Konuşma Evreni
+    from unixai import pixel
+
+    pixel.hello()  # PIXEL_OFFICE=true ise karakterleri yerel ofise al
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     try:
         httpd.serve_forever()

@@ -42,6 +42,6 @@ cat <<EOF
 ==> Hazır: $DIR
   1) Ofisi başlatın:     cd $DIR && ./baslat.sh          (yazdırılan ?token=… adresini tarayıcıda açın)
   2) Ofiste:             Settings → "Watch All Sessions" açın
-  3) Köprüyü başlatın:   UNIXAI_URL=http://unixai:8080 MORPHEUS_URL=http://morpheus:3000 node $DIR/pixel-bridge.mjs
+  3) Uygulamanın .env'ine PIXEL_OFFICE=true ekleyip servisi yeniden başlatın (aynı makinede token otomatik bulunur)
   Ayrıntı: integrations/pixel-office/README.md
 EOF
