@@ -50,7 +50,7 @@ def publish(type_: str, **data) -> dict:
     global _seq
     with _cond:
         _seq += 1
-        ev = {"id": _seq, "type": type_, "time": iso_now(), **{k: v for k, v in data.items() if v is not None}}
+        ev = {"id": _seq, "type": type_, "time": iso_now(), **{k: v for k, v in data.items() if v is not None and k not in ("id", "type")}}
         _buf.append(ev)
         _cond.notify_all()
     return ev

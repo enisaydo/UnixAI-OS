@@ -605,6 +605,7 @@ def main():
     print("  Giriş       →  " + ((("yerel yönetici (ADMIN_USER / ADMIN_PASSWORD)" if au["type"] == "local" else f"LDAP ({au['url']}, {au['mode'] or 'YAPILANDIRMA EKSİK'})"))
                                 if au["enabled"] else "KAPALI — .env'de ADMIN_PASSWORD veya LDAP_SERVER tanımlayın!") + "\n", flush=True)
     runs.start_scheduler()
+    morpheus.start_relay()  # MorpheusAI düzeltme akışı → canlı panel / Konuşma Evreni
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     try:
         httpd.serve_forever()

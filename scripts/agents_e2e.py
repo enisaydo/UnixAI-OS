@@ -253,6 +253,11 @@ def main():
         t1, t2 = call(UX, f"/mcp/connections/{c1['id']}/test", {}), call(MP, f"/mcp/connections/{c2['id']}/test", {})
         check(t1["ok"] and t2["ok"], f"iki yönlü MCP bağlantısı: UnixAI→MorpheusAI ({len(t1['tools'])} araç), MorpheusAI→UnixAI ({len(t2['tools'])} araç)")
 
+        for _ in range(60):  # MorpheusAI düzeltme akışı aktarımı (SSE) bağlansın
+            if (call(UX, "/integrations/morpheus").get("relay") or {}).get("connected"):
+                break
+            time.sleep(0.25)
+        check(call(UX, "/integrations/morpheus")["relay"]["connected"], "UnixAI, MorpheusAI düzeltme akışını dinliyor (/api/remediations/events)")
         live_ux, live_mp = [], []
         for port, sink in ((UX, live_ux), (MP, live_mp)):
             threading.Thread(target=sse_collect, args=(port, sink), daemon=True).start()
@@ -350,6 +355,10 @@ def main():
         check(has(live_ux, type="http", dir="giden", method="POST", path=f"/api/remediations/{rid}/approve", status=200)
               and [e for e in has(live_mp, type="http", dir="gelen", path=f"/api/remediations/{rid}/approve") if e.get("by") == "EnisA"],
               "canlı: onay isteği UnixAI'den giden ve MorpheusAI'ye gelen REST olarak (onaylayan EnisA) göründü")
+        rem_ux = [e for e in live_ux if e.get("type") == "rem" and e.get("src") == "morpheusai" and e.get("rem") == rid]
+        stages = [e["stage"] for e in rem_ux]
+        check(all(x in stages for x in ("generated", "approved", "commit", "template", "launch")),
+              f"UnixAI canlı: MorpheusAI düzeltme akışı aktarıldı (AKIŞ: {' → '.join(dict.fromkeys(stages))})")
         au = [x for x in call(UX, "/audit")["records"] if "Playbook" in str(x.get("action", ""))]
         check(len(au) >= 3, "onay, tekrar deneme ve uygulama İşlem Kayıtları'na düştü")
         print("\n[Log dosyaları]")

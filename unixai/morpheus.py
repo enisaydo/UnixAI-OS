@@ -71,7 +71,8 @@ def is_configured() -> bool:
 
 def view() -> dict:
     c = get()
-    return {**c, "token": MASK if c["token"] else "", "configured": is_configured(), "viaMcp": not _own_configured(c) and is_configured(), "mask": MASK}
+    return {**c, "token": MASK if c["token"] else "", "configured": is_configured(), "viaMcp": not _own_configured(c) and is_configured(), "mask": MASK,
+            "relay": relay_status()}
 
 
 def save(data: dict, user=None) -> dict:
@@ -254,8 +255,9 @@ def pending(limit=20) -> list:
         rec = next((x for x in _records() if x["id"] == rid), None)
         if rec and (rec.get("approval") or rec.get("status") in FINAL):
             continue
+        fresh = rec and rec.get("refreshedAt") and (datetime.now(timezone.utc) - parse_iso(rec["refreshedAt"])).total_seconds() < 45
         try:
-            r = refresh(rid)
+            r = rec if fresh else refresh(rid)  # 45 sn içinde sorulduysa MorpheusAI'ye yeniden sorma
         except Exception:
             continue
         if not r.get("approval") and not r.get("rejected") and r.get("runnable") is not False and r.get("status") == "generated":
@@ -302,6 +304,64 @@ def auto_send(results: list, user="zamanlayıcı") -> list:
     if sent:
         print(f"[morpheus] {len(sent)} bulgu MorpheusAI'ye gönderildi", flush=True)
     return sent
+
+
+# ------------------------------------------------------------------
+#  MorpheusAI düzeltme akışını canlı dinleme (GET /api/remediations/events, SSE)
+#  Gelen 'rem' olayları UnixAI'nin canlı akışına aktarılır: CANLI panelde AKIŞ satırları, evrende hareket
+# ------------------------------------------------------------------
+_relay = {"connected": False, "error": None, "since": None}
+
+
+def relay_status() -> dict:
+    return dict(_relay)
+
+
+def start_relay() -> None:
+    import ssl
+    import time as _time
+    import urllib.request
+
+    from . import live
+
+    def loop():
+        last_id, backoff = None, 5
+        while True:
+            t = target()
+            if not t:
+                _relay.update(connected=False, error="entegrasyon yok")
+                _time.sleep(5)
+                continue
+            headers = {"authorization": f"Bearer {t['token']}", "accept": "text/event-stream", "x-morpheus-client": "unixai-os"}
+            if last_id:
+                headers["last-event-id"] = str(last_id)
+            ctx = ssl._create_unverified_context() if t["insecureTls"] else None
+            try:
+                req = urllib.request.Request(t["url"] + "/api/remediations/events", headers=headers)
+                with urllib.request.urlopen(req, timeout=60, context=ctx) as r:
+                    _relay.update(connected=True, error=None, since=iso_now())
+                    backoff = 5
+                    first = last_id is None
+                    for raw in r:
+                        line = raw.decode("utf-8", "replace").rstrip("\n")
+                        if line.startswith("id: "):
+                            last_id = int(line[4:]) if line[4:].isdigit() else last_id
+                        if not line.startswith("data: "):
+                            continue
+                        try:
+                            ev = json.loads(line[6:])
+                        except ValueError:
+                            continue
+                        if ev.get("type") != "rem" or (first and ev.get("replay")):
+                            continue  # ilk bağlantıdaki eski olaylar aktarılmaz
+                        data = {k: v for k, v in ev.items() if k not in ("id", "type")}
+                        live.publish("rem", **data, src="morpheusai")
+            except Exception as e:
+                _relay.update(connected=False, error=str(e)[:200])
+            _time.sleep(backoff)
+            backoff = min(backoff * 2, 60)
+
+    threading.Thread(target=loop, name="morpheus-relay", daemon=True).start()
 
 
 def status() -> dict:
