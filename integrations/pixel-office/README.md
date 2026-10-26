@@ -17,6 +17,23 @@ Makine B:  MorpheusAI ──(PIXEL_OFFICE=true)──► Pixel Agents (yerel)   
 İsteğe bağlı: iki uygulamayı **üçüncü bir makinedeki tek ortak ofiste** görmek isterseniz `pixel-bridge.mjs`
 (bağımlılıksız) iki uygulamanın canlı akışını okuyup o ofise gönderir — bkz. en alttaki bölüm.
 
+## Tek komutla kurulum (her iki makinede)
+
+```bash
+# UnixAI makinesinde (UnixAI-OS deposundan)
+sudo bash integrations/pixel-office/kur.sh --app unixai
+# MorpheusAI makinesinde (MorpheusAI deposundan)
+sudo bash deploy/pixel-office/kur.sh --app morpheus
+```
+
+Betik: Node.js 20 yoksa kurar → `pixel-agents@1.5.0`'ı indirip **sha512** doğrular → `/opt/pixel-office` +
+systemd `pixel-office` servisi (gömülü terminal kapalı) → **Watch All Sessions** açar → uygulamanın `.env`'ine
+`PIXEL_OFFICE=true`, `PIXEL_URL`, `PIXEL_TOKEN` yazar (yedek alır; podman'ı algılar) → uygulamayı yeniden başlatır →
+ofis adresini yazar (`http://sunucu:3100/`). İnternetsiz makine: başka makinede `sablonu-indir.sh` ile hazırlanan
+klasörün tar.gz'si `--paket` ile verilir. `--gizli`: ofis yalnızca o makineden izlenir.
+
+Aşağıdaki adımlar betiğin yaptıklarını elle yapmak isteyenler içindir.
+
 ## Lisans (ücretsiz, açık kaynak)
 
 | Bileşen | Lisans | Kaynak |
@@ -26,7 +43,10 @@ Makine B:  MorpheusAI ──(PIXEL_OFFICE=true)──► Pixel Agents (yerel)   
 | Karakterler | **CC0** (ticari kullanım serbest, atıf gerekmez) | [JIK-A-4 · Metro City](https://jik-a-4.itch.io/metrocity-free-topdown-character-pack) |
 | Köprü (`pixel-bridge.mjs`) | bu proje | — |
 
-Elenen şablonlar: *Star Office UI* (görseller "ticari kullanım yasak"), *Pixel Office* (lisans dosyası yok).
+Elenen şablonlar: *Star Office UI* (görseller "ticari kullanım yasak"), *Pixel Office* (lisans dosyası yok),
+*AI Town* (Convex backend'i FSL lisanslı; kasaba, kendi LLM karakterleri), *Generative Agents / Smallville*
+(görseller sanatçı izni gerektiriyor, 2024'ten beri güncellenmiyor), *claw-empire* (görsel kaynağı belirsiz,
+kendi kodlama ajanlarını yönetir), *ChatDev* (yalnızca kendi ajanlarının log görüntüleyicisi).
 Pixel Agents'ın belgelerinde önerilen ücretli tileset'ler (ör. Donarg) **kullanılmaz**; yalnızca pakette gelen açık görseller.
 
 ## 1) Şablonu yerele çekin
