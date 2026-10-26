@@ -34,9 +34,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 MDIR = Path(os.environ.get("MORPHEUS_DIR", ROOT.parent / "MorpheusAI")).resolve()
-GW, AAP, UX, MP, BB = 3951, 3953, 3954, 3955, 3956
+GW, AAP, UX, MP, BB, LF = 3951, 3953, 3954, 3955, 3956, 3957
 fails = 0
-seen = {"unixai_tools": [], "morpheus_tools": [], "aap": [], "rid": None, "jobs": {}, "bb": {}, "bb_deny": True, "synced": [], "templates": []}
+seen = {"langfuse": [], "unixai_tools": [], "morpheus_tools": [], "aap": [], "rid": None, "jobs": {}, "bb": {}, "bb_deny": True, "synced": [], "templates": []}
 
 
 def check(c, msg):
@@ -170,6 +170,28 @@ class FakeAAP(BaseHTTPRequestHandler):
         return self.j(200, {"id": jid, "status": seen["jobs"].get(jid, "pending")})
 
 
+class FakeLangfuse(BaseHTTPRequestHandler):
+    """Langfuse OTLP/HTTP JSON alıcısı: POST /api/public/otel/v1/traces"""
+    def log_message(self, *a):
+        pass
+
+    def do_POST(self):
+        body = json.loads(self.rfile.read(int(self.headers["content-length"])))
+        import base64
+        ok = self.path == "/api/public/otel/v1/traces" and self.headers.get("authorization") == "Basic " + base64.b64encode(b"pk-lf-test:sk-lf-test").decode() \
+            and self.headers.get("x-langfuse-ingestion-version") == "4"
+        for rs in body.get("resourceSpans", []):
+            svc = next((a["value"]["stringValue"] for a in rs["resource"]["attributes"] if a["key"] == "service.name"), "?")
+            for ss in rs["scopeSpans"]:
+                for sp in ss["spans"]:
+                    attrs = {a["key"]: next(iter(a["value"].values())) for a in sp["attributes"]}
+                    seen["langfuse"].append({"svc": svc, "ok": ok, "name": sp["name"], "trace": sp["traceId"], "id": sp["spanId"], "parent": sp.get("parentSpanId"), "attrs": attrs})
+        self.send_response(200 if ok else 401)
+        self.send_header("content-length", "2")
+        self.end_headers()
+        self.wfile.write(b"{}")
+
+
 class FakeBitbucket(BaseHTTPRequestHandler):
     """Bitbucket Server REST: PUT /rest/api/1.0/projects/OPS/repos/ansible-ops/browse/<yol>"""
     def log_message(self, *a):
@@ -221,10 +243,11 @@ def sse_collect(port, sink):
 
 
 def main():
-    for port, h in ((GW, Gateway), (AAP, FakeAAP), (BB, FakeBitbucket)):
+    for port, h in ((GW, Gateway), (AAP, FakeAAP), (BB, FakeBitbucket), (LF, FakeLangfuse)):
         threading.Thread(target=ThreadingHTTPServer(("127.0.0.1", port), h).serve_forever, daemon=True).start()
     ud, md = tempfile.mkdtemp(prefix="ux-e2e-"), tempfile.mkdtemp(prefix="mp-e2e-")
-    common = {**os.environ, "PYTHONIOENCODING": "utf-8", "LDAP_SERVER": "", "ADMIN_PASSWORD": ""}
+    common = {**os.environ, "PYTHONIOENCODING": "utf-8", "LDAP_SERVER": "", "ADMIN_PASSWORD": "",
+              "LANGFUSE_URL": f"http://127.0.0.1:{LF}", "LANGFUSE_PUBLIC_KEY": "pk-lf-test", "LANGFUSE_SECRET_KEY": "sk-lf-test", "LANGFUSE_PROJECT_ID": "unixai-morpheus"}
     ux = subprocess.Popen([sys.executable, "server.py"], cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT,
                           env={**common, "PORT": str(UX), "HOST": "127.0.0.1", "UNIXAI_DATA_DIR": ud, "AI_LOG_DIR": ud + "/logs", "TMS_TOKEN_URL": "", "CHAT_URL": ""})
     mp = subprocess.Popen(["node", "server.js"], cwd=MDIR, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT,
@@ -284,6 +307,28 @@ def main():
               "düzeltme kaydı: uyum 95, onay bekliyor")
         uconv = call(UX, f"/agent/conversations/{r['conversationId']}")
         check(uconv["trace"][1]["result"] and "rem-" in uconv["trace"][1]["result"], "UnixAI konuşma kaydında MorpheusAI ajanının cevabı saklandı")
+        print("\n[Langfuse izleri]")
+        for _ in range(40):  # arka plan gönderimi (≈2 sn)
+            if any(x["name"] == "MorpheusAI ajanı" for x in seen["langfuse"]) and any(x["name"] == "UnixAI ajanı" for x in seen["langfuse"]):
+                break
+            time.sleep(0.25)
+        lf = seen["langfuse"]
+        ux_root = next((x for x in lf if x["svc"] == "unixai-os" and x["name"] == "UnixAI ajanı"), None)
+        ask = next((x for x in lf if x["svc"] == "unixai-os" and x["name"] == "araç · morpheusai__morpheus_agent_ask"), None)
+        mp_root = next((x for x in lf if x["svc"] == "morpheusai" and x["name"] == "MorpheusAI ajanı"), None)
+        check(lf and all(x["ok"] for x in lf), f"Langfuse: iki uygulama OTLP/HTTP ile gönderdi, kimlik doğrulama doğru ({len(lf)} gözlem)")
+        check(ux_root and mp_root and ask and mp_root["trace"] == ux_root["trace"] and mp_root["parent"] == ask["id"] and ask["parent"] == ux_root["id"],
+              "Langfuse: iki ajanın konuşması TEK iz — MorpheusAI ajanı, UnixAI'nin 'morpheus_agent_ask' adımının altında")
+        same = [x for x in lf if ux_root and x["trace"] == ux_root["trace"]]
+        types = {x["attrs"].get("langfuse.observation.type") for x in same}
+        gens = [x for x in same if x["attrs"].get("langfuse.observation.type") == "generation"]
+        check({"agent", "tool", "generation", "chain"} <= types and gens and all(x["attrs"].get("gen_ai.usage.input_tokens") == "200" and x["attrs"].get("gen_ai.request.model") for x in gens),
+              f"Langfuse: izde ajan, araç, GPT (model + token) ve playbook üretimi var ({len(same)} gözlem, {len(gens)} GPT çağrısı)")
+        check(any(x["name"].startswith("Düzeltme playbook'u") for x in same) and "Bearer" not in json.dumps(lf), "Langfuse: playbook üretimi aynı izde, token sızmıyor")
+        conv_ux = call(UX, f"/agent/conversations/{r['conversationId']}")
+        ts_ = call(UX, "/tracing/status")
+        check(conv_ux.get("traceId") == ux_root["trace"] and ts_["enabled"] and ts_["sent"] > 0 and ts_["traceUrl"].endswith("/project/unixai-morpheus/traces/"),
+              "Langfuse: konuşma kaydında iz numarası, arayüz bağlantısı hazır")
         print("\n[Canlı akış]")
         time.sleep(0.5)
 

@@ -37,11 +37,14 @@ def detect_server(*texts, explicit=None) -> str | None:
 
 
 def record(direction, peer, question, answer=None, server=None, conversation_id=None, remote_conversation_id=None,
-           remediations=None, tools=None, ok=True, error=None, duration_ms=None, user=None) -> dict:
+           remediations=None, tools=None, ok=True, error=None, duration_ms=None, user=None, trace_id=None) -> dict:
     row = {"id": uuid.uuid4().hex[:16], "time": iso_now(), "date": day_of(), "direction": direction, "peer": peer, "user": user,
            "server": server, "question": str(question or "")[:8000], "answer": str(answer or "")[:20000],
            "conversationId": conversation_id, "remoteConversationId": remote_conversation_id,
            "remediations": remediations or [], "tools": tools or [], "ok": ok, "error": (error or None) and str(error)[:500], "durationMs": duration_ms}
+    from . import tracing
+
+    row["traceId"] = trace_id or tracing.current_trace_id()
     from . import oplog
 
     oplog.write_entry("ajanlar-arasi", {**row, "category": "ajanlar-arasi", "action": f"UnixAI → {peer}" if direction == "giden" else f"{peer} → UnixAI"})

@@ -26,7 +26,7 @@ from unixai.env import ROOT, env, load_env
 
 load_env()
 
-from unixai import (a2a, agent, live, oplog, analyzer, audit, auth, collector, connection, demo, diagnostics, genai, inventory,  # noqa: E402
+from unixai import (a2a, agent, live, oplog, tracing, analyzer, audit, auth, collector, connection, demo, diagnostics, genai, inventory,  # noqa: E402
                     logger, mcp_hub, morpheus, prompts, runs, settings, usage)
 from unixai.errors import ApiError  # noqa: E402
 
@@ -464,6 +464,8 @@ class Handler(BaseHTTPRequestHandler):
                 return j(200, morpheus.test())
             except ApiError as e:
                 return j(200, {"ok": False, "error": str(e)})
+        if route == "GET /api/tracing/status":
+            return j(200, tracing.status())
         if route == "GET /api/morpheus/tasks":
             return j(200, {"items": morpheus.tasks(qs.get("server") or None), "integration": morpheus.status()})
         if route == "GET /api/approvals":

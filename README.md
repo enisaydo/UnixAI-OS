@@ -129,6 +129,13 @@ cd /opt/unixai-os && git pull && systemctl restart unixai-os
 - GPT'ye giden log içeriği için *Ayarlar → IP adreslerini maskele* seçeneği vardır; log metinleri modele "veri, talimat değil" olarak verilir.
 - Token limiti dolunca AI çağrısı yapılmaz, sunucular kural motoruyla analiz edilir.
 
+## Ajan izleme arayüzü (Langfuse)
+
+Kurum içine kurulan [Langfuse](https://langfuse.com) ile her ajan çalışması, araç adımı ve GPT çağrısı (model, token, süre)
+izlenir; UnixAI ⇄ MorpheusAI konuşması tek iz olarak görünür. Kurulum resmi docker-compose şablonuyla tek komut:
+`sudo bash deploy/langfuse/kur.sh --host langfuse.kurum.local` → ayrıntı: [`deploy/langfuse/README.md`](deploy/langfuse/README.md).
+`.env`'de `LANGFUSE_*` boşsa izleme kapalıdır.
+
 ## Loglar
 
 Sistemin yaptığı her işlem kategorisine göre **ayrı dosyaya** yazılır: `logs/<kategori>/<kategori>-YYYY-MM-DD.jsonl`

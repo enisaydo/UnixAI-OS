@@ -166,6 +166,16 @@ def invalidate() -> None:
 #  Chat completions
 # ------------------------------------------------------------------
 def complete(messages: list, tools=None, model=None, kind: str = "agent", server=None) -> dict:
+    """Langfuse'a 'generation' olarak izlenen araç destekli çağrı (bkz. _complete)"""
+    from . import tracing
+
+    with tracing.generation(f"GPT · {kind}", messages, model=model or _config()["chat"].get("model"), tools=len(tools or []) or None, server=server) as g:
+        r = _complete(messages, tools, model, kind, server)
+        g.usage(r.get("usage"), r.get("model")).output(r["message"])
+        return r
+
+
+def _complete(messages: list, tools=None, model=None, kind: str = "agent", server=None) -> dict:
     """Araç destekli ham çağrı (ajan döngüsü için). tools: OpenAI biçimli function listesi.
     Dönen: {message: {role, content, tool_calls?}, finishReason, usage, model, logId}
     HTTP hatasında GenAIError (status alanıyla; ajan 'tools' desteklenmiyorsa JSON moduna geçer)."""
@@ -207,6 +217,16 @@ def complete(messages: list, tools=None, model=None, kind: str = "agent", server
 
 
 def chat(messages: list, model=None, kind: str = "chat", server=None) -> dict:
+    """Langfuse'a 'generation' olarak izlenen metin çağrısı (bkz. _chat)"""
+    from . import tracing
+
+    with tracing.generation(f"GPT · {kind}", messages, model=model or _config()["chat"].get("model"), server=server) as g:
+        r = _chat(messages, model, kind, server)
+        g.usage(r.get("usage"), r.get("model")).output(r["content"])
+        return r
+
+
+def _chat(messages: list, model=None, kind: str = "chat", server=None) -> dict:
     """Dönen: {content, usage, model, logId}. Hata durumunda GenAIError (usage / log_id dolu olabilir)."""
     c = _config()
     ch = c["chat"]

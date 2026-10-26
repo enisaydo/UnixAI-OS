@@ -64,6 +64,7 @@ const Api = (() => {
     agentSettings: () => request("/agent/settings"),
     saveAgentSettings: (s) => request("/agent/settings", { method: "POST", body: s }),
     tasks: (q = {}) => request(`/morpheus/tasks?${qs(q)}`),
+    tracing: () => request("/tracing/status"),
     conversations: () => request("/agent/conversations"),
     conversation: (id) => request(`/agent/conversations/${enc(id)}`),
     mcpServer: () => request("/mcp/server"),

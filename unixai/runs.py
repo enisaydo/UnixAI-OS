@@ -183,8 +183,13 @@ def _process_server(run: dict, src: dict, use_ai: bool):
 
     if use_ai:
         try:
-            with _ai_sem:
+            from . import tracing
+
+            with _ai_sem, tracing.span(f"Sunucu analizi · {src['name']}", "chain", input={"server": src["name"], "kurallar": [f["title"] for f in findings][:30]},
+                                       trace={"langfuse.user.id": run["user"], "langfuse.session.id": f"toplama-{run['id']}"},
+                                       **{"langfuse.observation.metadata.run": run["id"]}) as tsp:
                 analysis = analyzer.analyze_server(src["name"], metrics, findings, prev_head, {"user": run["user"], "ip": run.get("ip")})
+                tsp.output({"skor": analysis.get("health_score"), "durum": analysis.get("status"), "ozet": analysis.get("summary")})
         except Exception as e:
             analysis = {**analyzer.rule_only(findings), "aiError": str(e)[:500]}
     else:

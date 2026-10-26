@@ -18,7 +18,7 @@ import threading
 import time
 import uuid
 
-from . import live, oplog
+from . import live, oplog, tracing
 from . import a2a, genai, mcp_hub, prompts, tools, usage
 from .errors import ApiError
 from .store import file, iso_now, read_json, write_json
@@ -148,7 +148,7 @@ def _exec(name: str, args: dict, ts: dict, ctx: dict, conv_id: str, hop: int):
     if not t["agent"]:
         return mcp_hub.call_remote(t["conn"], t["tool"], args), t["conn"]["name"]
     # Ajanlar arası: karşı ajana soru — ayrı konuşma kaydına yazılır
-    args = {**args, "context": {"conversation_id": conv_id, "hop": hop + 1, "from": AGENT_NAME}}
+    args = {**args, "context": {"conversation_id": conv_id, "hop": hop + 1, "from": AGENT_NAME, **({"trace": tracing.current()} if tracing.current() else {})}}
     peer, q = t["conn"]["name"], args.get("question")
     server = a2a.detect_server(q, explicit=args.get("server") or ctx.get("contextServer"))
     if server and "server" not in args and "server" in (t.get("schema") or {}).get("properties", {}):
@@ -180,7 +180,22 @@ def _short(v, n=MAX_RESULT) -> str:
     return s if len(s) <= n else s[:n] + f"\n…[{len(s) - n} karakter kesildi]"
 
 
-def run(messages: list, context=None, ctx=None, hop: int = 0, conversation_id=None, origin=None) -> dict:
+def run(messages: list, context=None, ctx=None, hop: int = 0, conversation_id=None, origin=None, trace=None) -> dict:
+    """Langfuse'a 'agent' gözlemi olarak izlenir. trace: karşı ajandan gelen iz bağlamı {trace_id, span_id} (aynı ize bağlanır)"""
+    q = next((m.get("content") for m in reversed(messages or []) if isinstance(m, dict) and m.get("role") == "user"), "")
+    who = (ctx or {}).get("user")
+    with tracing.span("UnixAI ajanı", "agent", input=q, parent=trace,
+                      trace={"langfuse.user.id": who, "langfuse.session.id": conversation_id} if not trace else None,
+                      **{"langfuse.observation.metadata.origin": origin or who or "arayüz", "langfuse.observation.metadata.hop": hop,
+                         "langfuse.observation.metadata.server": (context or {}).get("server")}) as sp:
+        r = _run(messages, context, ctx, hop, conversation_id, origin)
+        sp.output(r.get("reply")).set(**{"langfuse.observation.metadata.conversation": r.get("conversationId")})
+        if sp.trace_id:
+            r["traceId"] = sp.trace_id
+        return r
+
+
+def _run(messages: list, context=None, ctx=None, hop: int = 0, conversation_id=None, origin=None) -> dict:
     """messages: [{role, content}] (son mesaj kullanıcı). Dönen: {reply, conversationId, trace, mode}"""
     ctx = dict(ctx or {})
     ctx["_rems"] = []  # karşı ajanın bu konuşmada ürettiği playbook'lar (onay kartları için)
@@ -188,7 +203,7 @@ def run(messages: list, context=None, ctx=None, hop: int = 0, conversation_id=No
         raise ApiError("Ajan için GenAI bağlantısı gerekli (Ayarlar → GenAI bağlantısı)", 400)
     s = settings()
     conv = {"id": uuid.uuid4().hex[:16], "parent": conversation_id, "startedAt": iso_now(), "origin": origin or ctx.get("user") or "arayüz",
-            "user": ctx.get("user"), "hop": hop, "context": context, "trace": [], "status": "running"}
+            "user": ctx.get("user"), "hop": hop, "context": context, "trace": [], "status": "running", "traceId": tracing.current_trace_id()}
     history = [m for m in messages if isinstance(m, dict) and m.get("role") in ("user", "assistant") and isinstance(m.get("content"), str)][-16:]
     question = next((m["content"] for m in reversed(history) if m["role"] == "user"), "")
     conv["question"] = question
@@ -258,7 +273,11 @@ def run(messages: list, context=None, ctx=None, hop: int = 0, conversation_id=No
                 live.publish("step", conversation=conv["id"], tool=name, phase="start", rid=s_id, hop=hop, origin=conv.get("origin"),
                              where=ts.get(name, {}).get("conn", {}).get("name") if ts.get(name, {}).get("kind") == "remote" else "yerel")
                 try:
-                    result, where = _exec(name, args, ts, {**ctx, "source": ctx.get("source") or AGENT_NAME}, conv["id"], hop)
+                    remote = ts.get(name, {}).get("kind") == "remote"
+                    with tracing.span(f"araç · {name}", "agent" if ts.get(name, {}).get("agent") else "tool", input=args,
+                                      **{"langfuse.observation.metadata.where": ts.get(name, {}).get("conn", {}).get("name") if remote else "yerel"}) as tsp:
+                        result, where = _exec(name, args, ts, {**ctx, "source": ctx.get("source") or AGENT_NAME}, conv["id"], hop)
+                        tsp.output(_short(result, 8000))
                     text = _short(result)
                     entry.update(where=where, ok=True, result=_short(result, 4000))
                 except Exception as e:

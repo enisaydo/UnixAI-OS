@@ -211,7 +211,7 @@ def refresh(rem_id: str) -> dict:
         _save_records(rows)
     return {**rec, "playbook": r.get("playbook"), "events": r.get("events", [])[-100:], "jobs": r.get("jobs", []),
             "finding": r.get("finding"), "compliance": {"score": (r.get("compliance") or {}).get("score"), "findings": len((r.get("compliance") or {}).get("findings") or [])},
-            "source": r.get("source"), "createdAt": r.get("createdAt"), "requestedBy": r.get("requestedBy"),
+            "source": r.get("source"), "createdAt": r.get("createdAt"), "requestedBy": r.get("requestedBy"), "traceId": r.get("traceId"),
             "requireCheck": r.get("requireCheck", True)}
 
 

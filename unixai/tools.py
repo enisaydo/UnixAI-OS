@@ -118,7 +118,7 @@ def agent_ask(a, ctx):
         raise
     a2a.record("gelen", peer, a.get("question"), r["reply"], server=server, conversation_id=r["conversationId"],
                remote_conversation_id=c.get("conversation_id"), tools=[t["tool"] for t in r["trace"] if t.get("tool")],
-               duration_ms=int((time.monotonic() - t0) * 1000), user=ctx.get("user"))
+               duration_ms=int((time.monotonic() - t0) * 1000), user=ctx.get("user"), trace_id=r.get("traceId"))
     live.publish("a2a", dir="gelen", peer=peer, phase="end", rid=r_id, ok=True, answer=live.short(r["reply"], 400), server=server,
                  durationMs=int((time.monotonic() - t0) * 1000), tools=[t["tool"] for t in r["trace"] if t.get("tool")])
     return {"answer": r["reply"], "conversationId": r["conversationId"], "steps": len(r["trace"]),
@@ -131,6 +131,7 @@ def _agent_run(agent, a, ctx, c):
         context={"server": a["server"]} if a.get("server") else None,
         ctx={**ctx, "source": c.get("from") or ctx.get("source") or "mcp", "readonly": ctx.get("readonly", False)},
         hop=int(c.get("hop") or 1), conversation_id=c.get("conversation_id"), origin=c.get("from") or ctx.get("client"),
+        trace=c.get("trace") if isinstance(c.get("trace"), dict) else None,
     )
 
 
