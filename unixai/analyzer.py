@@ -23,7 +23,7 @@ SERVER_SCHEMA = """{
   "status": "OK" | "WARNING" | "CRITICAL",
   "summary": "<2-3 cümlelik yönetici özeti>",
   "anomalies": [
-    { "id": "A1", "title": "<kısa başlık>", "severity": "critical|high|medium|low", "category": "<disk|memory|cpu|io|service|security|patch|time|lifecycle|...>",
+    { "id": "A1", "title": "<kısa başlık>", "severity": "critical|high|medium|low", "category": "<disk|memory|cpu|io|service|security|stability|patch|time|lifecycle|...>",
       "evidence": "<metrik değeri veya log satırı, birebir>", "probable_cause": "<olası kök neden>" }
   ],
   "action_items": [

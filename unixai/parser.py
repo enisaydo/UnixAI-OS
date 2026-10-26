@@ -97,6 +97,31 @@ def summarize_log(text: str, limit: int = 25) -> list:
     return [{"count": c, "example": sample[k]} for k, c in groups.most_common(limit)]
 
 
+CLEAN_SHUTDOWN_RE = re.compile(r"Journal stopped|systemd-shutdown|Reached target .*(Power-Off|Power Off|Reboot|Shutdown|Halt)|"
+                               r"reboot: (Restarting system|Power down)|Shutting down\.", re.I)
+PANIC_RE = re.compile(r"Kernel panic|BUG: |Oops: |soft lockup|hard LOCKUP|sysrq: Trigger a crash|Out of memory: Kill", re.I)
+
+
+def parse_boot(sections: dict, uptime_days: float) -> dict:
+    """Önceki boot temiz mi kapandı, kdump dökümü var mı (crash / güç kesintisi tespiti)"""
+    tail = (sections.get("prev_boot_tail") or "").strip()
+    dumps = [l.strip() for l in (sections.get("crash_dumps") or "").splitlines() if l.strip()]
+    unclean = None  # None: bilinmiyor (kalıcı journal ve wtmp yok)
+    if tail:
+        unclean = not CLEAN_SHUTDOWN_RE.search(tail)
+    else:  # kalıcı journal yoksa wtmp: en son 'reboot'tan önce 'shutdown' yoksa temiz kapanmamış
+        rows = [l.split()[0] for l in (sections.get("reboots") or "").splitlines() if l.strip() and l.split()[0] in ("reboot", "shutdown")]
+        if len(rows) >= 2 and rows[0] == "reboot":
+            unclean = rows[1] == "reboot"
+    return {
+        "crash_dumps": dumps,
+        "recent_reboot": uptime_days < 1,
+        "unclean_reboot": unclean,
+        "panic": bool(PANIC_RE.search(tail)),
+        "prev_boot_tail": tail.splitlines()[-6:],
+    }
+
+
 def parse(sections: dict) -> dict:
     def s(k):
         return sections.get(k) or ""
@@ -127,6 +152,7 @@ def parse(sections: dict) -> dict:
         "top_processes": [(p[:5] + [" ".join(p[5:])]) for p in (l.split() for l in s("top_processes").splitlines() if l.strip())],
         "journal_errors": summarize_log(s("journal_errors")),
         "kernel_messages": summarize_log(kernel_log, limit=15),
+        "boot": parse_boot(sections, round((_int(s("uptime_seconds"), 0) or 0) / 86400, 1)),
     }
 
 

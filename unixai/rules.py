@@ -73,6 +73,16 @@ def evaluate(m: dict, prev=None, t=None, days: float = 1) -> list:
         out.append(_f("medium", "security", f"SELinux {m['selinux']}", {"avc_denials": m["avc_denials"]}))
     if m["security_updates"]:
         out.append(_f("medium", "patch", f"{m['security_updates']} bekleyen güvenlik güncellemesi (RHSA)", {}))
+    boot = m.get("boot") or {}
+    if boot.get("crash_dumps"):
+        out.append(_f("critical", "stability", f"kdump: /var/crash'te {len(boot['crash_dumps'])} çökme dökümü (en yeni: {boot['crash_dumps'][0]})",
+                      {"crash_dumps": boot["crash_dumps"], "son_boot_satirlari": boot.get("prev_boot_tail")}))
+    if boot.get("recent_reboot") and (boot.get("unclean_reboot") or boot.get("panic")):
+        out.append(_f("critical", "stability", "Beklenmedik yeniden başlama: önceki boot temiz kapanmamış (kernel crash / güç kesintisi / hard reset?)",
+                      {"uptime_gun": m["uptime_days"], "panic_izi": boot.get("panic"), "onceki_boot_son_satirlar": boot.get("prev_boot_tail")}))
+    elif boot.get("recent_reboot"):
+        out.append(_f("low", "stability", "Son 24 saatte yeniden başladı" + (" (temiz kapanış)" if boot.get("unclean_reboot") is False else ""),
+                      {"uptime_gun": m["uptime_days"]}))
     if m["reboot_required"]:
         out.append(_f("low", "patch", "Kernel/glibc güncellemesi sonrası reboot bekleniyor", {}))
     if m["uptime_days"] >= t["uptime_warn_days"]:

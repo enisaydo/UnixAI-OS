@@ -47,6 +47,9 @@ sec security_updates; (dnf -q -C updateinfo list --security 2>/dev/null || yum -
 sec needs_restarting; $SUDO needs-restarting -r >/dev/null 2>&1; echo $?
 sec top_processes;    ps -eo pid,user,pcpu,pmem,rss,comm --sort=-pcpu --no-headers | head -n 10
 sec zombies;          ps -eo stat --no-headers | grep -c '^Z'
+sec crash_dumps;      ls -1t /var/crash 2>/dev/null | head -n 5
+sec prev_boot_tail;   $SUDO journalctl -b -1 -n 30 --no-pager -q -o short-iso 2>/dev/null
+sec reboots;          last -x -F reboot shutdown 2>/dev/null | head -n 6
 sec end
 }
 unixai_collect </dev/null
@@ -54,7 +57,7 @@ unixai_collect </dev/null
 
 SECTIONS = ["hostname", "os_release", "kernel", "uptime_seconds", "nproc", "loadavg", "meminfo", "df", "df_inode",
             "vmstat", "failed_units", "journal_errors", "ssh_failures", "kernel_errors", "selinux", "avc_denials", "chrony",
-            "security_updates", "needs_restarting", "top_processes", "zombies"]
+            "security_updates", "needs_restarting", "top_processes", "zombies", "crash_dumps", "prev_boot_tail", "reboots"]
 
 
 def split_sections(raw: str):
