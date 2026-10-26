@@ -168,6 +168,9 @@ def _process_server(run: dict, src: dict, use_ai: bool):
 
         oplog.log("toplama", "Sunucu toplanamadı", user=run["user"], run=run["id"], server=src["name"], host=src.get("host"), error=src.get("error") or "hata",
                   durationMs=src.get("durationMs"))
+        from . import live
+
+        live.publish("run", phase="server", run=run["id"], server=src["name"], ok=False, error=live.short(src.get("error") or "hata", 160))
         return None
 
     s = settings.get()
@@ -206,6 +209,9 @@ def _process_server(run: dict, src: dict, use_ai: bool):
     oplog.log("toplama", "Sunucu toplandı ve analiz edildi", user=run["user"], run=run["id"], server=src["name"], score=analysis["health_score"],
               status=analysis["status"], engine=analysis["engine"], findings=len(findings), p1=entry["p1"], aiError=analysis.get("aiError"),
               durationMs=src.get("durationMs"), partial=bool(src.get("partial")) or None, quiet=True)
+    from . import live
+
+    live.publish("run", phase="server", run=run["id"], server=src["name"], ok=True, score=analysis["health_score"], status=analysis["status"], p1=entry["p1"])
     return {"name": src["name"], "analysis": analysis}
 
 
@@ -276,6 +282,9 @@ def _start(run: dict, target, register: bool = True) -> dict:
 
             oplog.log("toplama", "Çalıştırma bitti", user=run["user"], run=run["id"], trigger=run["trigger"], status=run["status"], servers=len(run["servers"]),
                       failed=sum(1 for s in run["servers"] if s.get("collect") == "failed"), ok=run["status"] != "failed", error=run.get("error"), quiet=True)
+            from . import live
+
+            live.publish("run", phase="end", run=run["id"], status=run["status"], ok=run["status"] != "failed")
 
     with _lock:
         if _active:
@@ -287,6 +296,9 @@ def _start(run: dict, target, register: bool = True) -> dict:
 
     oplog.log("toplama", "Çalıştırma başladı", user=run["user"], ip=run.get("ip"), run=run["id"], trigger=run["trigger"], ai=run["ai"],
               servers=[s["name"] for s in run["servers"]], quiet=True)
+    from . import live
+
+    live.publish("run", phase="start", run=run["id"], trigger=run["trigger"], servers=[s["name"] for s in run["servers"]][:20], user=run["user"])
     threading.Thread(target=wrapper, name=f"run-{run['id']}", daemon=True).start()
     return copy.deepcopy(run)
 

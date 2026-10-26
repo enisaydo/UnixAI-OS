@@ -76,8 +76,8 @@ def stream(handler, last_id: int | None) -> None:
         with _cond:
             backlog = [e for e in _buf if e["id"] > last_id] if last_id else list(_buf)[-40:]
             sent = _seq
-        for ev in backlog:
-            w.write(_frame(ev))
+        for ev in backlog:  # geçmiş olaylar: arayüz yalnızca listeler, karakterler canlandırmaz
+            w.write(_frame({**ev, "replay": True}))
         w.flush()
         while True:
             with _cond:
