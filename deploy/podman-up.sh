@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# UnixAI OS'u Podman ile (root) build edip ayağa kaldırır / günceller.
+# Trinity'yi Podman ile (root) build edip ayağa kaldırır / günceller.
 # Kullanım:  sudo ./deploy/podman-up.sh            → sadece container (podman run)
 #            sudo ./deploy/podman-up.sh --systemd  → systemd servisi olarak (açılışta otomatik başlar)
 # Host'taki /root/.ssh (id_rsa + known_hosts) container'a bağlanır.
@@ -50,7 +50,7 @@ RUN_ARGS=(--name "$NAME" --user root -p "$PORT:3000" --env-file "$APP_DIR/.env" 
 if [[ "${1:-}" == "--systemd" ]]; then
   cat > "$UNIT" <<EOF
 [Unit]
-Description=UnixAI OS (Podman)
+Description=Trinity (Podman)
 Wants=network-online.target
 After=network-online.target
 [Service]
@@ -69,7 +69,7 @@ fi
 
 for i in {1..30}; do
   if curl --noproxy '*' -fsS "http://127.0.0.1:$PORT/api/health" >/dev/null 2>&1; then
-    echo "UnixAI OS hazır → http://$(hostname -I | awk '{print $1}'):$PORT"
+    echo "Trinity hazır → http://$(hostname -I | awk '{print $1}'):$PORT"
     exit 0
   fi
   sleep 1

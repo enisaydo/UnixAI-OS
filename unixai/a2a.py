@@ -1,7 +1,7 @@
-"""Ajanlar arası konuşma kaydı (UnixAI ajanı ⇄ MorpheusAI ajanı ve diğer bağlı ajanlar)
+"""Ajanlar arası konuşma kaydı (Trinity ajanı ⇄ MorpheusAI ajanı ve diğer bağlı ajanlar)
 
 Kullanıcı sohbetlerinden ayrı tutulur. Her kayıt bir soru-cevap alışverişidir:
-  direction : "giden" (UnixAI ajanı karşı ajana sordu) | "gelen" (karşı ajan UnixAI ajanına sordu)
+  direction : "giden" (Trinity ajanı karşı ajana sordu) | "gelen" (karşı ajan Trinity ajanına sordu)
   peer      : karşı ajan (bağlantı adı / istemci adı, ör. morpheusai)
   server    : ilgili sunucu (açıkça verilmişse, sohbet bağlamından ya da sorudaki sunucu adından)
   remediations : karşı ajanın ürettiği playbook'lar (YAML, uyum skoru, durum)
@@ -47,11 +47,11 @@ def record(direction, peer, question, answer=None, server=None, conversation_id=
     row["traceId"] = trace_id or tracing.current_trace_id()
     from . import oplog
 
-    oplog.write_entry("ajanlar-arasi", {**row, "category": "ajanlar-arasi", "action": f"UnixAI → {peer}" if direction == "giden" else f"{peer} → UnixAI"})
+    oplog.write_entry("ajanlar-arasi", {**row, "category": "ajanlar-arasi", "action": f"Trinity → {peer}" if direction == "giden" else f"{peer} → Trinity"})
     append_line(file("a2a", f"{row['date']}.jsonl"), row)
     with _lock:
         _cache.pop(row["date"], None)
-    print(f"[ajanlar] {'UnixAI → ' + peer if direction == 'giden' else peer + ' → UnixAI'}{f' ({server})' if server else ''}: "
+    print(f"[ajanlar] {'Trinity → ' + peer if direction == 'giden' else peer + ' → Trinity'}{f' ({server})' if server else ''}: "
           f"{row['question'][:120]!r} → {'✓' if ok else '✕ ' + str(error)[:120]}"
           + (f" · {len(row['remediations'])} playbook" if row["remediations"] else ""), flush=True)
     return row

@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""UnixAI OS MCP — stdio aktarıcısı (yalnızca Python standart kütüphanesi)
+"""Trinity MCP — stdio aktarıcısı (yalnızca Python standart kütüphanesi)
 
-UnixAI OS, MCP sunucusunu kendisi barındırır: POST {UNIXAI_URL}/mcp (Streamable HTTP). HTTP destekleyen istemciler
+Trinity, MCP sunucusunu kendisi barındırır: POST {UNIXAI_URL}/mcp (Streamable HTTP). HTTP destekleyen istemciler
 (Claude Code, MorpheusAI ajanı, diğer ajanlar) doğrudan bu adrese bağlanır. Yalnızca stdio destekleyen istemciler için
 bu betik stdin'deki JSON-RPC mesajlarını /mcp'ye aktarır, cevapları stdout'a yazar; araç listesi her zaman sunucuyla aynıdır.
 
 Ortam değişkenleri:
   UNIXAI_URL         http://unixai.kurum.local:3000
-  UNIXAI_API_TOKEN   UnixAI OS → Ajan & MCP'de üretilen MCP token'ı (veya .env UNIXAI_API_TOKEN)
+  UNIXAI_API_TOKEN   Trinity → Ajan & MCP'de üretilen MCP token'ı (veya .env UNIXAI_API_TOKEN)
   UNIXAI_TLS_INSECURE=true  (self-signed sertifika)
 """
 import json
@@ -51,7 +51,7 @@ def forward(msg: dict):
     try:
         return json.loads(text)
     except ValueError:
-        return {"jsonrpc": "2.0", "id": msg.get("id"), "error": {"code": -32603, "message": f"UnixAI OS geçersiz yanıt ({getattr(r, 'status', None) or r.code}): {text[:200]}"}}
+        return {"jsonrpc": "2.0", "id": msg.get("id"), "error": {"code": -32603, "message": f"Trinity geçersiz yanıt ({getattr(r, 'status', None) or r.code}): {text[:200]}"}}
 
 
 def main():
@@ -73,7 +73,7 @@ def main():
         try:
             out = forward(msg)
         except Exception as e:
-            out = {"jsonrpc": "2.0", "id": msg.get("id"), "error": {"code": -32603, "message": f"UnixAI OS'a ulaşılamadı: {e}"}} if msg.get("id") is not None else None
+            out = {"jsonrpc": "2.0", "id": msg.get("id"), "error": {"code": -32603, "message": f"Trinity'ye ulaşılamadı: {e}"}} if msg.get("id") is not None else None
         if out is not None and msg.get("id") is not None:
             print(json.dumps(out, ensure_ascii=False), flush=True)
 

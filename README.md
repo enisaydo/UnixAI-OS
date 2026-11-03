@@ -1,4 +1,4 @@
-# UnixAI OS
+# Trinity
 
 RHEL sunuculardan **agentless (SSH)** günlük log ve metrik toplayan, kural motoru + kurumsal **GenAI (GPT)** ile
 sunucu bazında anomali analizi yapıp **aksiyon maddeleri** çıkaran web arayüzü.
@@ -19,6 +19,7 @@ Merkez sunucu ──ssh (root, anahtar, salt-okunur komutlar)──▶ RHEL hede
 ```bash
 python3 server.py              # → http://localhost:3000
 python3 scripts/smoke_test.py  # sahte TMS/GPT gateway + sahte ssh ile uçtan uca testler
+python3 scripts/satellite_test.py  # sahte Satellite (HTTPS) + sahte MorpheusAI ile CVE etki analizi testi
 ```
 
 Python 3.9+ yeterli (RHEL 9 varsayılan `python3`; RHEL 8'de `python3.11` veya `python39` paketi). GenAI bağlı değilken **demo modunda** kural motoru çalışır;
@@ -54,26 +55,53 @@ Podman ile: `./deploy/podman-up.sh --systemd` (host'taki `/root/.ssh` container'
 
 ## MorpheusAI ile düzeltme (bulgu → standartlara uygun playbook → AAP)
 
-UnixAI OS bir sunucuda bulgu bulduğunda aksiyonu **MorpheusAI'ye gönderir**; MorpheusAI kurumsal Ansible standartlarına uygun
+Trinity bir sunucuda bulgu bulduğunda aksiyonu **MorpheusAI'ye gönderir**; MorpheusAI kurumsal Ansible standartlarına uygun
 bir playbook üretir, standart analizinden geçirir (uyum skoru düşükse ihlalleri modele verip bir kez düzeltir) ve **onayınızı ister**.
 Onaydan önce AAP'de hiçbir şey çalışmaz. Onaylayınca AAP'de **check (dry-run)** başlar; check başarılıysa **Sunucuya uygula** ile gerçek çalıştırma yapılır.
 
-1. UnixAI OS → **Ayarlar → MorpheusAI**: adres + `MORPHEUS_API_TOKEN`, AAP envanterindeki host adı (sunucu adı / adres).
+1. Trinity → **Ayarlar → MorpheusAI**: adres + `MORPHEUS_API_TOKEN`, AAP envanterindeki host adı (sunucu adı / adres).
 2. Sunucu detayı → **Aksiyonlar** → *MorpheusAI'ye gönder* (veya Ayarlar'da "toplama bitince P1'leri otomatik gönder").
-3. Playbook (YAML) ve **Onayla / Reddet / Sunucuya uygula** düğmeleri UnixAI'de görünür: ajan sohbet cevabı, **MorpheusAI** sekmesi,
+3. Playbook (YAML) ve **Onayla / Reddet / Sunucuya uygula** düğmeleri Trinity'de görünür: ajan sohbet cevabı, **MorpheusAI** sekmesi,
    sunucu detayı → MorpheusAI sekmesi (*YAML / Onay*) ve dashboard'daki **"N playbook onayınızı bekliyor"** bandı (menüde rozet).
    Onay MorpheusAI'ye kişinin adıyla aktarılır (`EnisA (unixai üzerinden)`); MorpheusAI → Düzeltmeler ekranından da onaylanabilir.
-   Bunun için MorpheusAI'de **"Onay aktarabilir"** işaretli token üretip UnixAI'ye girin (Ayarlar → MorpheusAI veya MCP bağlantısı).
+   Bunun için MorpheusAI'de **"Onay aktarabilir"** işaretli token üretip Trinity'ye girin (Ayarlar → MorpheusAI veya MCP bağlantısı).
 4. AAP runner kurulumu: MorpheusAI reposunda `deploy/aap/README.md`.
 
 ### MCP
 
-`mcp/unixai_mcp.py` (UnixAI OS) ve MorpheusAI'deki `mcp/morpheus-mcp.js` bir MCP istemcisine (Claude Code / Desktop)
+`mcp/unixai_mcp.py` (Trinity) ve MorpheusAI'deki `mcp/morpheus-mcp.js` bir MCP istemcisine (Claude Code / Desktop)
 birlikte eklenince iki sistem araç çağrılarıyla konuşur. Ayrıntılar ve örnek yapılandırma: [`mcp/README.md`](mcp/README.md).
+
+## CVE takibi (Red Hat Satellite 6.17)
+
+Güvenlik ekibinin ilettiği bir CVE için hangi sunucuların etkilendiği **Satellite'tan** bulunur; Satellite'ın göremediği
+sunucular SSH ile doğrulanır. Satellite'ta ve sunucularda hiçbir şey değiştirilmez.
+
+1. **Ayarlar → Satellite**: adres (`https://gbsatp04`; kısa ad çözülmüyorsa FQDN), salt-okunur kullanıcı (Viewer) ve parola
+   veya Personal Access Token. Satellite CA'sını merkez sunucuya güvenin:
+   `curl -ko /etc/pki/ca-trust/source/anchors/katello-ca.crt https://gbsatp04/pub/katello-server-ca.crt && update-ca-trust`
+2. **CVE Takibi** ekranı (veya Genel Bakış'taki güvenlik kartı) → CVE numarası → *Etki analizi yap*.
+3. Akış: `cve = CVE-…` ile errata (RHSA) → `applicable_errata` / `installable_errata` ile host'lar → Trinity envanteriyle
+   eşleştirme (FQDN, kısa ad, IP) → Satellite'ta kayıtlı olmayan veya check-in'i eski sunucularda `dnf updateinfo list --cve`.
+
+| Durum | Anlamı | Aksiyon |
+|---|---|---|
+| Etkileniyor · yama hazır | Errata uygulanabilir ve content view'de var | *MorpheusAI'ye gönder* → playbook → onay → AAP |
+| Etkileniyor · yama content view'de yok | Errata uygulanabilir ama kurulabilir değil | Satellite'ta content view publish/promote |
+| Etkileniyor (SSH ile doğrulandı) | Satellite'ta yok, sunucunun kendi depolarına göre etkileniyor | MorpheusAI'ye gönder; sunucuyu Satellite'a kaydet |
+| Satellite'ta kayıtlı değil / verisi eski / doğrulanamadı | Sonuç kesin değil | Kayıt, check-in veya SSH erişimi |
+| Etkilenmiyor / yamalı | Errata bu host'a uygulanamıyor | — |
+
+Genel Bakış'ta: Satellite host sayısı, güvenlik yaması bekleyen host'lar, check-in'i eski host'lar, Satellite'ta olmayan
+Trinity sunucuları ve filoyu etkileyen son Critical/Important errata'lar (10 dk önbellek). Raporlar `data/cve_reports.json`,
+API çağrıları `logs/satellite/`. Ajan ve MCP istemcileri `unixai_cve_impact` aracıyla aynı analizi yapabilir.
+
+Satellite'ta errata'sı olmayan CVE'ler (Red Hat henüz yama yayınlamadıysa) "errata yok" olarak raporlanır; ürün durumu için
+Red Hat CVE sayfasına bakılır.
 
 ## Ajan ve MCP (birbiriyle konuşan iki ajan)
 
-UnixAI OS bir **ajandır**: kurumsal GPT + araçlarla çok adımlı çalışır. Araçlarını `POST /mcp` (Streamable HTTP) üzerinden başka alanlara **barındırır** (arayüzden üretilen token'lar, salt-okunur seçeneği, izinli Origin listesi) ve başka MCP sunucularına **istemci olarak bağlanır** (ör. MorpheusAI, diğer ekiplerin ajanları). İki uygulama `*_agent_ask` araçlarıyla birbirinin ajanına doğal dilde soru sorar; hop sınırı döngüyü önler. Gerçek uygulama her zaman insan onayı gerektirir.
+Trinity bir **ajandır**: kurumsal GPT + araçlarla çok adımlı çalışır. Araçlarını `POST /mcp` (Streamable HTTP) üzerinden başka alanlara **barındırır** (arayüzden üretilen token'lar, salt-okunur seçeneği, izinli Origin listesi) ve başka MCP sunucularına **istemci olarak bağlanır** (ör. MorpheusAI, diğer ekiplerin ajanları). İki uygulama `*_agent_ask` araçlarıyla birbirinin ajanına doğal dilde soru sorar; hop sınırı döngüyü önler. Gerçek uygulama her zaman insan onayı gerektirir.
 
 Kurulum ve mimari: [`mcp/README.md`](mcp/README.md) · Arayüz: **Ajan & MCP**
 
@@ -99,7 +127,8 @@ needs-restarting, top prosesler, zombie. Root değilse ayrıcalıklı komutlar `
 | **Sunucu detayı** | Aksiyonlar (komutlarıyla), anomaliler, kural bulguları, metrikler, trend grafikleri, ham loglar, GPT'ye giden istek |
 | **Toplama & Analiz** | Topla ve analiz et, sadece yeniden analiz et, demo veri; çalıştırma geçmişi ve canlı ilerleme |
 | **Gelen Loglar** | Sunucu × log bölümü matrisi (satır sayısı); hücreden ham çıktı |
-| **UnixAI Ajanı** | Araç kullanan ajan: sunucu verisi, canlı salt-okunur tanı, MorpheusAI ajanıyla konuşma; adımlar cevabın altında |
+| **CVE Takibi** | Satellite'tan CVE etki analizi: etkilenen / belirsiz / etkilenmeyen sunucular, aksiyon maddeleri, MorpheusAI'ye gönderim |
+| **Trinity Ajanı** | Araç kullanan ajan: sunucu verisi, canlı salt-okunur tanı, MorpheusAI ajanıyla konuşma; adımlar cevabın altında |
 | **Ajan & MCP** | Barındırılan /mcp, erişim token'ları, izinli alanlar, bağlı MCP sunucuları, ajan ayarları ve konuşmaları |
 | **Sunucular** | Envanter, SSH testi, public key ve hedef kurulum komutları |
 | **Token Kullanımı** | Günlük grafik, kullanıcı/tür dağılımı, limitler, CSV |
@@ -131,15 +160,15 @@ cd /opt/unixai-os && git pull && systemctl restart unixai-os
 
 ## Pixel Office — ajanların konuştuğu açık kaynak ofis
 
-UnixAI ve MorpheusAI ajanları, açık kaynak (MIT kod, MIT/CC0 görseller) **Pixel Agents** piksel-art ofisinde karakter
+Trinity ve MorpheusAI ajanları, açık kaynak (MIT kod, MIT/CC0 görseller) **Pixel Agents** piksel-art ofisinde karakter
 olarak çalışır: soru sorar, playbook yazar, onay bekler. Şablon yerele çekilir (sürüm sabit, sha512 doğrulamalı),
-`.env`'de `PIXEL_OFFICE=true` olunca UnixAI aynı makinedeki ofise olayları doğrudan gönderir (köprü gerekmez):
+`.env`'de `PIXEL_OFFICE=true` olunca Trinity aynı makinedeki ofise olayları doğrudan gönderir (köprü gerekmez):
 [`integrations/pixel-office/README.md`](integrations/pixel-office/README.md).
 
 ## Ajan izleme arayüzü (Langfuse)
 
 Kurum içine kurulan [Langfuse](https://langfuse.com) ile her ajan çalışması, araç adımı ve GPT çağrısı (model, token, süre)
-izlenir; UnixAI ⇄ MorpheusAI konuşması tek iz olarak görünür. Kurulum resmi docker-compose şablonuyla tek komut:
+izlenir; Trinity ⇄ MorpheusAI konuşması tek iz olarak görünür. Kurulum resmi docker-compose şablonuyla tek komut:
 `sudo bash deploy/langfuse/kur.sh --host langfuse.kurum.local` → ayrıntı: [`deploy/langfuse/README.md`](deploy/langfuse/README.md).
 `.env`'de `LANGFUSE_*` boşsa izleme kapalıdır.
 
@@ -156,9 +185,10 @@ Sistemin yaptığı her işlem kategorisine göre **ayrı dosyaya** yazılır: `
 | `logs/toplama/` | toplama çalıştırmaları: başladı, her sunucunun sonucu (skor, P1 sayısı), bitti |
 | `logs/tani/` | canlı salt-okunur tanı komutları |
 | `logs/genai/` | TMS token ve GPT çağrıları |
+| `logs/satellite/` | Satellite API çağrıları ve CVE etki analizleri |
 | `logs/morpheus/` | MorpheusAI köprüsü: bulgu gönderimi, onay/ret/uygulama aktarımı, durum sorguları |
 | `logs/mcp-istemci/`, `logs/mcp-sunucu/` | giden / gelen MCP çağrıları |
-| `logs/ajan/`, `logs/ajanlar-arasi/` | ajanın araç adımları, UnixAI ⇄ MorpheusAI konuşmaları |
+| `logs/ajan/`, `logs/ajanlar-arasi/` | ajanın araç adımları, Trinity ⇄ MorpheusAI konuşmaları |
 
 Parola ve secret'lar yazılmaz; token'ların yalnızca ilk 4 karakteri görünür.
 
@@ -173,6 +203,7 @@ unixai/parser.py         komut çıktısı → metrikler
 unixai/rules.py          eşik kuralları + disk dolma tahmini
 unixai/analyzer.py       GPT sunucu analizi, filo özeti, sohbet
 unixai/runs.py           çalıştırmalar, kayıt, zamanlayıcı
+unixai/satellite.py      Red Hat Satellite: CVE etki analizi, güvenlik özeti
 unixai/inventory.py      sunucu envanteri
 unixai/usage.py          token kullanımı ve limitler
 unixai/logger.py         AI istek/cevap logları (maskeli)

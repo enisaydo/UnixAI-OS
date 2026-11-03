@@ -1,11 +1,11 @@
-"""UnixAI OS araçları — hem yerel ajan tarafından hem de barındırılan MCP sunucusu (/mcp) üzerinden kullanılır
+"""Trinity araçları — hem yerel ajan tarafından hem de barındırılan MCP sunucusu (/mcp) üzerinden kullanılır
 
 Her araç: ad, açıklama, JSON Schema, salt-okunur mu, işleyici. Salt-okunur token'la bağlanan MCP istemcileri
 yalnızca readonly araçları görür.
 """
 from __future__ import annotations
 
-from . import a2a, diagnostics, inventory, morpheus, runs
+from . import a2a, diagnostics, inventory, morpheus, runs, satellite
 from .errors import ApiError
 
 
@@ -94,6 +94,15 @@ def send_to_morpheus(a, ctx):
     return {"sent": out}
 
 
+def cve_impact(a, ctx):
+    r = satellite.analyze(a["cve"], ctx.get("user"), verify=a.get("verify", True))
+    return {"cve": r["cve"], "severity": r["severity"], "errata": [{k: e[k] for k in ("errataId", "severity", "packages", "rebootSuggested")} for e in r["errata"]],
+            "noErrata": r["noErrata"], "affected": r["affected"], "counts": {k: v for k, v in r["counts"].items() if v},
+            "statusLabels": {k: v[0] for k, v in satellite.STATUS.items()}, "reportId": r["id"],
+            "hosts": [{k: h.get(k) for k in ("name", "inventoryName", "status", "installable", "os", "lastCheckin")} for h in r["hosts"] if h["status"] != "clean"][:200],
+            "hint": "Etkilenen sunucular CVE Takibi ekranından MorpheusAI'ye gönderilebilir (playbook → onay → AAP)."}
+
+
 def list_remediations(a, _ctx):
     return {"items": morpheus.list_records(a.get("server"))}
 
@@ -146,7 +155,7 @@ DIAG_SCHEMA = {"type": "object", "required": ["server", "check"], "properties": 
 
 TOOLS = [
     {"name": "unixai_list_servers", "readonly": True, "handler": list_servers,
-     "description": "UnixAI OS'un izlediği RHEL sunucuları: son sağlık skoru, durum (OK/WARNING/CRITICAL/FAILED), P1 aksiyon sayısı, OS.",
+     "description": "Trinity'nin izlediği RHEL sunucuları: son sağlık skoru, durum (OK/WARNING/CRITICAL/FAILED), P1 aksiyon sayısı, OS.",
      "inputSchema": {"type": "object", "properties": {}}},
     {"name": "unixai_get_server_findings", "readonly": True, "handler": get_findings,
      "description": "Bir sunucunun son analizi: anomaliler, öncelikli aksiyon maddeleri (komutlarıyla, index'li), kural bulguları, dosya sistemleri, OS/kernel.",
@@ -173,16 +182,21 @@ TOOLS = [
      "description": "Toplama/analiz çalıştırmasının durumu ve sunucu bazında sonuçları.",
      "inputSchema": {"type": "object", "required": ["runId"], "properties": {"runId": _s("Çalıştırma numarası")}}},
     {"name": "unixai_send_to_morpheus", "readonly": False, "handler": send_to_morpheus,
-     "description": "Sunucu aksiyonunu UnixAI OS'un MorpheusAI köprüsüyle gönderir; MorpheusAI standartlara uygun düzeltme playbook'u üretir. "
+     "description": "Sunucu aksiyonunu Trinity'nin MorpheusAI köprüsüyle gönderir; MorpheusAI standartlara uygun düzeltme playbook'u üretir. "
                     "actionIndex verilmezse P1 (priority=P2 ise P1+P2) aksiyonların hepsi.",
      "inputSchema": {"type": "object", "required": ["server"], "properties": {"server": _s("Sunucu adı"), "actionIndex": {"type": "integer"},
                                                                              "priority": _s("P1 veya P2", enum=["P1", "P2"])}}},
+    {"name": "unixai_cve_impact", "readonly": True, "handler": cve_impact,
+     "description": "Bir CVE'den hangi RHEL sunucularının etkilendiğini Red Hat Satellite'tan bulur: CVE'yi kapatan RHSA'lar, yaması hazır / "
+                    "content view'de olmayan / Satellite'ta kayıtlı olmayan sunucular (bunlar SSH ile doğrulanır). Sistemi değiştirmez.",
+     "inputSchema": {"type": "object", "required": ["cve"], "properties": {"cve": _s("CVE numarası, ör. CVE-2024-6387"),
+                                                                          "verify": {"type": "boolean", "description": "Satellite'ta olmayan / verisi eski sunucuları SSH ile doğrula (varsayılan true)"}}}},
     {"name": "unixai_list_remediations", "readonly": True, "handler": list_remediations,
      "description": "MorpheusAI'ye gönderilen düzeltmeler ve güncel durumları.",
      "inputSchema": {"type": "object", "properties": {"server": _s("Sunucu adı filtresi")}}},
     {"name": "unixai_agent_ask", "readonly": True, "handler": agent_ask, "agent": True,
-     "description": "UnixAI OS AJANINA doğal dilde soru/istek gönderir (ajan kendi araçlarıyla sunucu verisine bakar, gerekirse canlı tanı çalıştırır ve cevaplar). "
-                    "Başka bir ajanın UnixAI ile konuşması için kullanılır.",
+     "description": "TRINITY AJANINA doğal dilde soru/istek gönderir (ajan kendi araçlarıyla sunucu verisine bakar, gerekirse canlı tanı çalıştırır ve cevaplar). "
+                    "Başka bir ajanın Trinity ile konuşması için kullanılır.",
      "inputSchema": {"type": "object", "required": ["question"], "properties": {
          "question": _s("Soru veya istek"), "server": _s("İlgili sunucu (opsiyonel)"),
          "context": {"type": "object", "description": "Ajanlar arası izleme (otomatik doldurulur)",

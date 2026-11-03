@@ -134,7 +134,7 @@ def explain(stderr: str, server: dict, ssh: dict) -> str:
         return ("Hedefin OpenSSH sürümü çok eski (ör. RHEL 6): yalnızca SHA1 RSA imzası destekliyor, merkezdeki ssh bunu kapatıyor. "
                 "Hedefi güncelleyin veya bu sunucu için ~/.ssh/config'e 'PubkeyAcceptedAlgorithms +ssh-rsa' ekleyin.")
     if re.search(r"passphrase|Load key .*(invalid format|libcrypto)", s, re.I):
-        return f"Anahtar okunamadı: {key} parolalı veya bozuk. UnixAI parolasız anahtar ister (BatchMode); ssh-keygen -y -f {key} ile kontrol edin."
+        return f"Anahtar okunamadı: {key} parolalı veya bozuk. Trinity parolasız anahtar ister (BatchMode); ssh-keygen -y -f {key} ile kontrol edin."
     if re.search(r"Too many authentication failures", s, re.I):
         return "Çok fazla anahtar denendi. Hedefte MaxAuthTries düşük olabilir; doğru anahtar dosyası seçili mi kontrol edin."
     if re.search(r"Permission denied", s, re.I):

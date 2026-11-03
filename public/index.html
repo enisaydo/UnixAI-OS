@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>UnixAI OS</title>
+  <title>Trinity</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;600;700&family=Red+Hat+Text:wght@400;500;600;700&family=Red+Hat+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -17,7 +17,7 @@
     <button class="icon-btn burger" id="menuBtn" aria-label="Menü"><svg class="i" data-icon="menu"></svg></button>
     <a class="brand" href="#/dashboard">
       <span class="brand-mark"><img src="favicon.svg" alt="" /></span>
-      <span class="brand-text"><b>UnixAI <span>OS</span></b><small>RHEL agentless gözlem &amp; AI analiz</small></span>
+      <span class="brand-text"><b>Trinity</b><small>RHEL sağlık, CVE ve AI analiz</small></span>
     </a>
     <button class="search-trigger" id="searchBtn" title="Sunucu veya ekran ara">
       <svg class="i" data-icon="search"></svg><span>Sunucu, ekran veya işlem ara…</span><kbd>Ctrl K</kbd>
@@ -38,7 +38,8 @@
       <div class="nav-group">Analiz</div>
       <a href="#/runs" data-route="runs"><svg class="i" data-icon="refresh"></svg>Toplama &amp; Analiz</a>
       <a href="#/collected" data-route="collected"><svg class="i" data-icon="logs"></svg>Gelen Loglar</a>
-      <a href="#/ask" data-route="ask"><svg class="i" data-icon="chat"></svg>UnixAI Ajanı</a>
+      <a href="#/ask" data-route="ask"><svg class="i" data-icon="chat"></svg>Trinity Ajanı</a>
+      <a href="#/cve" data-route="cve"><svg class="i" data-icon="shield"></svg>CVE Takibi</a>
       <div class="nav-group">Yönetim</div>
       <a href="#/a2a" data-route="a2a"><svg class="i" data-icon="bolt"></svg>MorpheusAI<span class="badge" id="apprBadge" hidden></span></a>
       <a href="#/agent" data-route="agent"><svg class="i" data-icon="sparkles"></svg>Ajan &amp; MCP</a>
@@ -52,7 +53,7 @@
     </nav>
 
     <main class="page">
-      <div class="alert warn-banner hidden" id="authBanner"><svg class="i" data-icon="shield"></svg><span>Giriş kapalı: <code>.env</code>'de <code>ADMIN_PASSWORD</code> veya <code>LDAP_SERVER</code> tanımlayın. UnixAI root SSH anahtarı kullanır; arayüz herkese açık kalmamalı.</span></div>
+      <div class="alert warn-banner hidden" id="authBanner"><svg class="i" data-icon="shield"></svg><span>Giriş kapalı: <code>.env</code>'de <code>ADMIN_PASSWORD</code> veya <code>LDAP_SERVER</code> tanımlayın. Trinity root SSH anahtarı kullanır; arayüz herkese açık kalmamalı.</span></div>
 
       <!-- ---------- GENEL BAKIŞ ---------- -->
       <section class="view" data-view="dashboard">
@@ -67,6 +68,7 @@
         <div id="apprBanner"></div>
         <div id="hero"></div>
         <div id="fleetCard"></div>
+        <div id="secCard"></div>
         <div class="card">
           <div class="card-head">
             <h3><svg class="i" data-icon="servers"></svg>Sunucular</h3>
@@ -94,7 +96,7 @@
           </div>
           <div class="toolbar">
             <select id="sdRun" class="input sm" title="Toplama"></select>
-            <a class="btn" id="sdAsk" href="#/ask"><svg class="i" data-icon="chat"></svg>UnixAI'ye sor</a>
+            <a class="btn" id="sdAsk" href="#/ask"><svg class="i" data-icon="chat"></svg>Trinity'ye sor</a>
             <button class="btn primary" id="sdCollect"><svg class="i" data-icon="bolt"></svg>Bu sunucuyu topla</button>
           </div>
         </div>
@@ -152,7 +154,7 @@
       <!-- ---------- UNIXAI'YE SOR ---------- -->
       <section class="view" data-view="ask">
         <div class="page-head">
-          <div><h1>UnixAI Ajanı</h1><p>Ajan araçlarıyla sunucu verisine bakar, gerekirse canlı salt-okunur tanı çalıştırır ve bağlı ajanlarla (ör. MorpheusAI) konuşur. Her adım cevabın altında görünür.</p></div>
+          <div><h1>Trinity Ajanı</h1><p>Ajan araçlarıyla sunucu verisine bakar, gerekirse canlı salt-okunur tanı çalıştırır ve bağlı ajanlarla (ör. MorpheusAI) konuşur. Her adım cevabın altında görünür.</p></div>
           <a class="btn" href="#/agent"><svg class="i" data-icon="sliders"></svg>Ajan &amp; MCP</a>
         </div>
         <div class="card chat">
@@ -175,7 +177,7 @@
       <!-- ---------- AJANLAR ARASI (MorpheusAI) ---------- -->
       <section class="view universe" data-view="a2a">
         <div class="page-head">
-          <div><h1>MorpheusAI</h1><p>Yalnızca <b>UnixAI</b> ile <b>MorpheusAI ajanı</b> arasındaki konuşmalar. Kullanıcı sohbetlerinden ayrı tutulur; MorpheusAI'nin hazırladığı playbook'lar YAML olarak burada görünür.</p></div>
+          <div><h1>MorpheusAI</h1><p>Yalnızca <b>Trinity</b> ile <b>MorpheusAI ajanı</b> arasındaki konuşmalar. Kullanıcı sohbetlerinden ayrı tutulur; MorpheusAI'nin hazırladığı playbook'lar YAML olarak burada görünür.</p></div>
           <div class="toolbar">
             <select id="a2aPeer" class="input sm"><option value="">Tüm ajanlar</option></select>
             <input id="a2aServer" class="input sm" placeholder="Sunucu adı" />
@@ -187,7 +189,7 @@
           <div class="uv-live-h"><span class="uv-dot" id="uvLiveDot"></span><b>CANLI</b><span class="muted sm">MCP · REST (GET/POST) · ajan adımları</span>
             <span class="muted sm" id="uvLiveState">bağlanıyor…</span><span class="toolbar-spacer"></span>
             <label class="check sm"><input type="checkbox" id="uvAuto" /> Biteni film olarak oynat</label>
-            <label class="check sm" title="UnixAI'nin MorpheusAI'ye playbook durumunu soran GET istekleri"><input type="checkbox" id="uvShowGet" /> GET durum sorguları <span class="muted" id="uvGetCount"></span></label>
+            <label class="check sm" title="Trinity'nin MorpheusAI'ye playbook durumunu soran GET istekleri"><input type="checkbox" id="uvShowGet" /> GET durum sorguları <span class="muted" id="uvGetCount"></span></label>
             <button type="button" class="btn sm" id="uvLivePause">Duraklat</button><button type="button" class="btn sm" id="uvLiveClear">Temizle</button></div>
           <div class="uv-live-feed" id="uvLiveFeed" aria-live="polite"><div class="lv-empty">Henüz canlı istek yok. Bir ajan diğerine MCP üzerinden bir şey sorduğunda burada anında görünür.</div></div>
         </div>
@@ -206,7 +208,7 @@
       <!-- ---------- AJAN & MCP ---------- -->
       <section class="view" data-view="agent">
         <div class="page-head">
-          <div><h1>Ajan &amp; MCP</h1><p>UnixAI ajanı başka MCP sunucularına (ör. MorpheusAI, diğer ekiplerin ajanları) bağlanır; kendi araçlarını da MCP üzerinden başka alanlara sunar.</p></div>
+          <div><h1>Ajan &amp; MCP</h1><p>Trinity ajanı başka MCP sunucularına (ör. MorpheusAI, diğer ekiplerin ajanları) bağlanır; kendi araçlarını da MCP üzerinden başka alanlara sunar.</p></div>
           <a class="btn primary" href="#/ask"><svg class="i" data-icon="chat"></svg>Ajanla konuş</a>
         </div>
         <div class="agent-map" id="agentMap"></div>
@@ -230,7 +232,7 @@
           </div>
           <div class="card">
             <div class="card-head"><h3><svg class="i" data-icon="bolt"></svg>Bağlı MCP sunucuları</h3><button class="btn sm primary" id="mcpConnAdd"><svg class="i" data-icon="plus"></svg>Bağlantı ekle</button></div>
-            <p class="muted sm">Araçları UnixAI ajanına <code>&lt;bağlantı&gt;__&lt;araç&gt;</code> adıyla açılır. Adı <code>agent_ask</code> ile biten araçlar uzak bir ajanla doğal dilde konuşur.</p>
+            <p class="muted sm">Araçları Trinity ajanına <code>&lt;bağlantı&gt;__&lt;araç&gt;</code> adıyla açılır. Adı <code>agent_ask</code> ile biten araçlar uzak bir ajanla doğal dilde konuşur.</p>
             <div class="table-wrap"><table class="table compact" id="mcpConns"></table></div>
             <div class="sub-h">Ajan ayarları</div>
             <form id="agentForm" class="form">
@@ -245,7 +247,7 @@
                 </label>
                 <label>En fazla adım<input class="input" name="maxSteps" type="number" min="1" max="20" /></label>
                 <label>Ajanlar arası hop sınırı<input class="input" name="maxHop" type="number" min="0" max="3" />
-                  <small>1: UnixAI başka ajana sorabilir, gelen istekte geri soramaz (döngü önlemi).</small></label>
+                  <small>1: Trinity başka ajana sorabilir, gelen istekte geri soramaz (döngü önlemi).</small></label>
                 <label class="check"><input type="checkbox" name="allowWrite" /> Ajan toplama başlatabilir ve MorpheusAI'ye gönderebilir</label>
               </div>
               <div class="toolbar"><button class="btn primary sm" type="submit">Kaydet</button></div>
@@ -378,6 +380,26 @@
         </div>
       </section>
 
+      <!-- ---------- CVE TAKİBİ ---------- -->
+      <section class="view" data-view="cve">
+        <div class="page-head">
+          <div><h1>CVE Takibi</h1><p>Güvenlik ekibinin ilettiği CVE'den hangi sunucuların etkilendiğini Red Hat Satellite'tan bulur. Satellite'ta olmayan veya verisi eski sunucular SSH ile doğrulanır. Yalnızca okuma yapılır; düzeltme MorpheusAI → onay → AAP ile.</p></div>
+        </div>
+        <div class="card">
+          <form id="cveForm" class="cve-form">
+            <input class="input mono" name="cve" placeholder="CVE-2024-6387" autocomplete="off" spellcheck="false" required />
+            <label class="check"><input type="checkbox" name="verify" checked /> Satellite'ta olmayan / verisi eski sunucuları SSH ile doğrula</label>
+            <button class="btn primary" type="submit"><svg class="i" data-icon="search"></svg>Etki analizi yap</button>
+          </form>
+          <div id="cveHint"></div>
+        </div>
+        <div id="cveResult"></div>
+        <div class="card">
+          <div class="card-head"><h3><svg class="i" data-icon="list"></svg>Analiz geçmişi</h3></div>
+          <div class="table-wrap"><table class="table" id="cveHistory"></table></div>
+        </div>
+      </section>
+
       <!-- ---------- AYARLAR ---------- -->
       <section class="view" data-view="settings">
         <div class="page-head">
@@ -386,6 +408,7 @@
         <nav class="settings-nav">
           <a href="#/settings" data-anchor="setGenai">GenAI bağlantısı</a>
           <a href="#/settings" data-anchor="setMorpheus">MorpheusAI</a>
+          <a href="#/settings" data-anchor="setSatellite">Satellite</a>
           <a href="#/settings" data-anchor="setSsh">SSH &amp; zamanlama</a>
           <a href="#/settings" data-anchor="setThr">Eşikler</a>
           <a href="#/settings" data-anchor="setLimits">Token limitleri</a>
@@ -484,7 +507,7 @@
             <span class="muted sm" id="morInfo"></span>
           </div>
           <div class="flow">
-            <div class="flow-step ok"><b>1</b><span>UnixAI bulgusu</span><small>aksiyon + kanıt + OS</small></div>
+            <div class="flow-step ok"><b>1</b><span>Trinity bulgusu</span><small>aksiyon + kanıt + OS</small></div>
             <div class="flow-arrow">→</div>
             <div class="flow-step" id="flowMor"><b>2</b><span>MorpheusAI playbook</span><small id="flowMorHost">tanımlı değil</small></div>
             <div class="flow-arrow">→</div>
@@ -497,7 +520,7 @@
                 <small>Kayıttan sonra maskeli görünür; değiştirmezseniz eski değer korunur.</small></label>
               <label>AAP envanterindeki host adı
                 <select class="input" name="targetField">
-                  <option value="name">UnixAI sunucu adı (ör. rhel-db01)</option>
+                  <option value="name">Trinity sunucu adı (ör. rhel-db01)</option>
                   <option value="host">Sunucu adresi (IP / FQDN)</option>
                 </select>
                 <small>MorpheusAI playbook'u AAP'de bu değerle <code>limit</code> vererek çalıştırır.</small></label>
@@ -514,6 +537,44 @@
               <button class="btn" type="button" id="morTest">Kaydet + bağlantıyı test et</button>
             </div>
             <div id="morResult"></div>
+          </form>
+        </div>
+
+        <div class="card anchor" id="setSatellite">
+          <div class="card-head">
+            <h3><svg class="i" data-icon="shield"></svg>Red Hat Satellite (CVE takibi)</h3>
+            <span class="muted sm" id="satInfo"></span>
+          </div>
+          <div class="flow">
+            <div class="flow-step" id="flowSat"><b>1</b><span>Satellite errata + host'lar</span><small id="flowSatHost">tanımlı değil</small></div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-step ok"><b>2</b><span>SSH doğrulaması</span><small>Satellite'ta olmayan / verisi eski</small></div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-step"><b>3</b><span>MorpheusAI → onay → AAP</span><small>etkilenen sunucular</small></div>
+          </div>
+          <form id="satForm" class="form">
+            <div class="grid-2">
+              <label>Satellite adresi<input class="input mono" name="url" placeholder="https://gbsatp04" />
+                <small>Kısa ad merkez sunucuda DNS'te çözülmüyorsa tam adı (FQDN) yazın.</small></label>
+              <label>Organizasyon<input class="input" name="organization" placeholder="boş = kullanıcının gördüğü tümü" />
+                <small>Ad, etiket veya numara.</small></label>
+              <label>Kullanıcı<input class="input" name="user" autocomplete="off" placeholder="trinity-ro" />
+                <small>Salt-okunur rol yeterli (Viewer).</small></label>
+              <label>Parola veya Personal Access Token<input class="input mono" name="password" type="password" autocomplete="new-password" />
+                <small>Kayıttan sonra maskeli görünür; değiştirmezseniz eski değer korunur.</small></label>
+              <label>Check-in eskime süresi (gün)<input class="input" name="staleDays" type="number" min="1" max="30" />
+                <small>Son check-in'i bundan eski host'un "etkilenmiyor" bilgisine güvenilmez; SSH ile doğrulanır.</small></label>
+              <div class="form">
+                <label class="check"><input type="checkbox" name="insecureTls" /> Sertifika doğrulamasını kapat</label>
+                <small class="muted">Önerilen: Satellite CA'sını merkez sunucuya güvenin:
+                  <code>curl -ko /etc/pki/ca-trust/source/anchors/katello-ca.crt https://gbsatp04/pub/katello-server-ca.crt &amp;&amp; update-ca-trust</code></small>
+              </div>
+            </div>
+            <div class="toolbar">
+              <button class="btn primary" type="submit">Kaydet</button>
+              <button class="btn" type="button" id="satTest">Kaydet + bağlantıyı test et</button>
+            </div>
+            <div id="satResult"></div>
           </form>
         </div>
 
@@ -590,7 +651,7 @@
             <span class="muted sm" id="promptInfo"></span>
           </div>
           <form id="promptForm" class="form">
-            <label>UnixAI'nın kimliği ve kuralları
+            <label>Trinity'nin kimliği ve kuralları
               <textarea class="input mono" name="system" rows="12" spellcheck="false"></textarea>
               <small>Her analiz ve sohbet isteğinde <code>messages[0] = { role: "system", content: … }</code> olarak gönderilir.</small>
             </label>
@@ -613,7 +674,7 @@
     <div class="login-box">
       <div class="login-brand">
         <span class="brand-mark"><img src="favicon.svg" alt="" /></span>
-        <span class="brand-text"><b>UnixAI <span>OS</span></b><small>RHEL agentless gözlem &amp; AI analiz</small></span>
+        <span class="brand-text"><b>Trinity</b><small>RHEL sağlık, CVE ve AI analiz</small></span>
       </div>
       <h1>Giriş yapın</h1>
       <p class="muted" id="loginHint">Kurumsal (LDAP / Active Directory) kullanıcı adı ve parolanızı kullanın.</p>

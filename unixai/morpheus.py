@@ -1,15 +1,15 @@
-"""MorpheusAI köprüsü: UnixAI OS bulgularını düzeltme playbook'u için MorpheusAI'ye gönderir
+"""MorpheusAI köprüsü: Trinity bulgularını düzeltme playbook'u için MorpheusAI'ye gönderir
 
   Ayarlar → MorpheusAI entegrasyonu (data/integrations.json, 0600):
     url          http://morpheus.kurum.local:3000
     token        MorpheusAI .env → MORPHEUS_API_TOKEN ile aynı (arayüzde maskeli)
-    targetField  AAP envanterindeki host adı: "name" (UnixAI sunucu adı) veya "host" (adres)
+    targetField  AAP envanterindeki host adı: "name" (Trinity sunucu adı) veya "host" (adres)
     autoSend     toplama bitince P1 (veya P1+P2) aksiyonları otomatik gönder
 
   Akış: POST {url}/api/remediations → MorpheusAI standartlara uygun playbook üretir → İNSAN ONAYI → AAP (check → run)
   Gönderilen kayıtlar data/remediations.json'da tutulur; durum MorpheusAI'den yenilenir.
 
-  Onay aktarımı: UnixAI ekranında bir kişi "Onayla / Reddet / Sunucuya uygula" dediğinde istek MorpheusAI'ye
+  Onay aktarımı: Trinity ekranında bir kişi "Onayla / Reddet / Sunucuya uygula" dediğinde istek MorpheusAI'ye
   X-Approved-By: <kişi> başlığıyla iletilir. MorpheusAI bunu yalnızca "onay aktarabilir" işaretli token'dan kabul eder
   (MorpheusAI → Ajan & MCP → token üret → "Onay aktarabilir"). Ajanlar (MCP araçları) hiçbir zaman onay veremez.
   Entegrasyon ayarı yoksa "morpheus" adlı/adresli MCP bağlantısının adresi ve token'ı kullanılır.
@@ -188,10 +188,20 @@ def build_payload(snap: dict, action_index: int, source: str = "unixai-os") -> d
 
 def send(snap: dict, action_index: int, user=None, source="unixai-os") -> dict:
     payload = build_payload(snap, action_index, source)
+    return _post(payload, user, {"actionIndex": action_index, "runId": payload["context"]["runId"]})
+
+
+def send_finding(server: dict, finding: dict, user=None, source="trinity", context=None) -> dict:
+    """Toplama analizinden gelmeyen bir bulgu (ör. Satellite CVE etki raporu) için playbook ister"""
+    payload = {"server": server, "finding": finding, "source": source, "context": {"collectedAt": iso_now(), **(context or {})}}
+    return _post(payload, user, {"actionIndex": None, "runId": None, **{k: v for k, v in (context or {}).items() if k in ("cve", "reportId")}})
+
+
+def _post(payload: dict, user, extra: dict) -> dict:
     r = _call("POST", "/remediations", {**payload, "requestedBy": user}, kind="morpheus-remediation")
-    rec = _merge({"id": r["id"], "server": snap["server"], "actionIndex": action_index, "title": payload["finding"]["title"],
+    rec = _merge({"id": r["id"], "server": payload["server"]["name"], "title": payload["finding"]["title"],
                   "priority": payload["finding"]["priority"], "target": payload["server"]["target"], "sentAt": iso_now(),
-                  "sentBy": user, "source": source, "runId": payload["context"]["runId"]}, r)
+                  "sentBy": user, "source": payload["source"], **extra}, r)
     with _lock:
         rows = _records()
         rows.append(rec)
@@ -216,7 +226,7 @@ def refresh(rem_id: str) -> dict:
 
 
 # ------------------------------------------------------------------
-#  İnsan onayı (UnixAI ekranından MorpheusAI'ye aktarılır)
+#  İnsan onayı (Trinity ekranından MorpheusAI'ye aktarılır)
 # ------------------------------------------------------------------
 def decide(rem_id: str, action: str, user: str, body=None) -> dict:
     """action: approve | reject | publish | run | check — onaylayan kişi X-Approved-By ile iletilir"""
@@ -310,13 +320,13 @@ def auto_send(results: list, user="zamanlayıcı") -> list:
 
 # ------------------------------------------------------------------
 #  MorpheusAI düzeltme akışını canlı dinleme (GET /api/remediations/events, SSE)
-#  Gelen 'rem' olayları UnixAI'nin canlı akışına aktarılır: CANLI panelde AKIŞ satırları, evrende hareket
+#  Gelen 'rem' olayları Trinity'nin canlı akışına aktarılır: CANLI panelde AKIŞ satırları, evrende hareket
 # ------------------------------------------------------------------
 _relay = {"connected": False, "error": None, "since": None}
 
 
 def tasks(server=None, limit=200) -> list:
-    """MorpheusAI'deki tüm düzeltme görevleri (UnixAI'den gönderilen ve ajanlar arası konuşmada üretilen)"""
+    """MorpheusAI'deki tüm düzeltme görevleri (Trinity'den gönderilen ve ajanlar arası konuşmada üretilen)"""
     q = f"?limit={int(limit)}" + (f"&server={server}" if server else "")
     items = (_call("GET", "/remediations" + q, kind="morpheus-tasks") or {}).get("items", [])
     return [{**x, "url": link(x["id"]), "server": (x.get("server") or {}).get("name") if isinstance(x.get("server"), dict) else x.get("server"),

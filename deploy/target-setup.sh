@@ -1,5 +1,5 @@
 #!/bin/bash
-# Hedef RHEL sunucuda root ile calistirin: merkezi UnixAI sunucusunun root SSH anahtarini yetkilendirir.
+# Hedef RHEL sunucuda root ile calistirin: merkezi Trinity sunucusunun root SSH anahtarini yetkilendirir.
 # Kullanim: bash target-setup.sh "ssh-rsa AAAA... root@merkez" [MERKEZ_IP]
 #   MERKEZ_IP verilirse anahtar sadece o adresten kullanilabilir (onerilir).
 # Ansible ile: ansible all -b -m script -a "target-setup.sh '<pubkey>' 10.10.0.5"

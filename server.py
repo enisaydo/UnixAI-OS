@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""UnixAI OS - sunucu (bağımlılıksız, yalnızca Python 3.9+ standart kütüphanesi)
+"""Trinity - sunucu (bağımlılıksız, yalnızca Python 3.9+ standart kütüphanesi)
 
 - public/ klasörünü statik olarak sunar
 - RHEL sunuculardan agentless (SSH) günlük log ve metrik toplar, kural motoru + GenAI (GPT) ile analiz eder
@@ -27,7 +27,7 @@ from unixai.env import ROOT, env, load_env
 load_env()
 
 from unixai import (a2a, agent, live, oplog, tracing, analyzer, audit, auth, collector, connection, demo, diagnostics, genai, inventory,  # noqa: E402
-                    logger, mcp_hub, morpheus, prompts, runs, settings, usage)
+                    logger, mcp_hub, morpheus, prompts, runs, satellite, settings, usage)
 from unixai.errors import ApiError  # noqa: E402
 
 PORT = int(env("PORT", "3000") or 3000)
@@ -123,7 +123,7 @@ def chat_context(ctx):
 
 def health(deep: bool) -> dict:
     out = {"status": "ok", "mode": mode(), "auth": auth.status(), "genai": genai.status(), "scheduler": runs.scheduler_status(),
-           "servers": len(inventory.list_servers()), "morpheus": morpheus.status(),
+           "servers": len(inventory.list_servers()), "morpheus": morpheus.status(), "satellite": satellite.status(),
            "agent": {"mode": agent.settings()["mode"], "detected": agent.settings().get("detected"), "connections": len(mcp_hub.connections_view())}}
     if deep and mode() == "genai":
         try:
@@ -136,7 +136,7 @@ def health(deep: bool) -> dict:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "UnixAI-OS"
+    server_version = "Trinity"
     sys_version = ""
     protocol_version = "HTTP/1.1"
 
@@ -464,6 +464,22 @@ class Handler(BaseHTTPRequestHandler):
                 return j(200, morpheus.test())
             except ApiError as e:
                 return j(200, {"ok": False, "error": str(e)})
+        # ---- Red Hat Satellite: CVE etki analizi ----
+        if route == "GET /api/integrations/satellite":
+            return j(200, satellite.view())
+        if route == "POST /api/integrations/satellite":
+            return j(200, satellite.save(body, who["user"]))
+        if route == "POST /api/integrations/satellite/test":
+            try:
+                return j(200, satellite.test())
+            except ApiError as e:
+                return j(200, {"ok": False, "error": str(e)})
+        if route == "GET /api/satellite/summary":
+            return j(200, satellite.summary(qs.get("refresh") == "1"))
+        if route == "GET /api/cve/reports":
+            return j(200, {"items": satellite.reports(int(qs.get("limit") or 50)), "integration": satellite.status()})
+        if route == "POST /api/cve/analyze":
+            return j(200, satellite.analyze(body.get("cve"), who["user"], verify=body.get("verify") is not False))
         if route == "GET /api/pixel/status":
             from unixai import pixel
 
@@ -565,11 +581,18 @@ class Handler(BaseHTTPRequestHandler):
         if method == "POST" and m:
             # Onay yalnızca bir kişiden: API/MCP token'ları (ajanlar, otomasyon) onay veremez
             if (session and session.get("isApi")) or re.match(r"^Bearer\s", self.headers.get("authorization") or "", re.I):
-                return j(403, {"error": "Playbook onayı yalnızca UnixAI arayüzünden bir kişi tarafından verilebilir"})
+                return j(403, {"error": "Playbook onayı yalnızca Trinity arayüzünden bir kişi tarafından verilebilir"})
             if not who.get("isAdmin"):
                 return j(403, {"error": "Onay için yönetici yetkisi gerekiyor"})
             action = m.group(2) if m.group(2) != "launch" else ("run" if body.get("mode") == "run" else "check")  # publish: Bitbucket'a tekrar dene
             return j(200, morpheus.decide(m.group(1), action, who["user"], body))
+        m = re.match(r"^/api/cve/reports/([0-9a-f]{8,16})$", path)
+        if method == "GET" and m:
+            r = satellite.report(m.group(1))
+            return j(200, r) if r else j(404, {"error": "Rapor bulunamadı"})
+        m = re.match(r"^/api/cve/reports/([0-9a-f]{8,16})/send$", path)
+        if method == "POST" and m:
+            return j(201, satellite.send_remediation(m.group(1), str(body.get("host") or ""), who["user"]))
         m = re.match(r"^/api/runs/([^/]+)$", path)
         if method == "GET" and m:
             r = runs.get(unquote(m.group(1)))
@@ -602,7 +625,7 @@ def main():
     httpd = ThreadingHTTPServer((HOST, PORT), Handler)
     httpd.daemon_threads = True
     s = genai.status()
-    print(f"\n  UnixAI OS   →  http://localhost:{PORT}")
+    print(f"\n  Trinity   →  http://localhost:{PORT}")
     print("  Mod         →  " + (f"GENAI → token: {s['tokenHost']} · chat: {s['chatHost']} ({s['source']})" if mode() == "genai"
                                  else "DEMO (kural motoru) — GenAI adreslerini Ayarlar ekranından girin"))
     ssh = settings.get()["ssh"]

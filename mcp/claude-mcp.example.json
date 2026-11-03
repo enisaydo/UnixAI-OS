@@ -5,7 +5,7 @@
       "args": ["/opt/unixai-os/mcp/unixai_mcp.py"],
       "env": {
         "UNIXAI_URL": "http://unixai.kurum.local:3000",
-        "UNIXAI_API_TOKEN": "<UnixAI OS .env → UNIXAI_API_TOKEN>"
+        "UNIXAI_API_TOKEN": "<Trinity .env → UNIXAI_API_TOKEN>"
       }
     },
     "morpheusai": {

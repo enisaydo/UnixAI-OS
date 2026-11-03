@@ -33,6 +33,9 @@ ACTIONS = {
     "POST /api/integrations/morpheus": ("MorpheusAI entegrasyonu kaydedildi", ["url", "targetField", "autoSend", "autoSendPriority"]),
     "POST /api/integrations/morpheus/test": ("MorpheusAI bağlantısı test edildi", []),
     "POST /api/remediations": ("Bulgu MorpheusAI'ye gönderildi", ["server", "actionIndex"]),
+    "POST /api/integrations/satellite": ("Satellite entegrasyonu kaydedildi", ["url", "user", "organization", "staleDays", "insecureTls"]),
+    "POST /api/integrations/satellite/test": ("Satellite bağlantısı test edildi", []),
+    "POST /api/cve/analyze": ("CVE etki analizi çalıştırıldı", ["cve", "verify"]),
     "POST /api/agent/settings": ("Ajan ayarları kaydedildi", ["mode", "maxSteps", "maxHop", "allowWrite"]),
     "POST /api/mcp/tokens": ("MCP erişim token'ı üretildi", ["name", "readonly"]),
     "POST /api/mcp/origins": ("MCP izinli alanlar kaydedildi", ["allowedOrigins"]),
@@ -48,6 +51,7 @@ PATTERNS = [  # (method, path öneki/soneki, işlem)
     ("POST", "/reject", "Playbook reddedildi (MorpheusAI'ye aktarıldı)"),
     ("POST", "/launch", "Playbook AAP'de başlatıldı (MorpheusAI)"),
     ("POST", "/publish", "Playbook Bitbucket'a gönderim tekrar denendi (MorpheusAI)"),
+    ("POST", "/send", "CVE bulgusu MorpheusAI'ye gönderildi"),
 ]
 
 

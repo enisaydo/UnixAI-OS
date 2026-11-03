@@ -1,4 +1,4 @@
-"""UnixAI OS ajanı — GenAI (GPT) + araçlar (yerel + bağlı MCP sunucuları) ile çok adımlı akıl yürütme
+"""Trinity ajanı — GenAI (GPT) + araçlar (yerel + bağlı MCP sunucuları) ile çok adımlı akıl yürütme
 
 Araç çağırma modları (Ajan & MCP → Ajan ayarları):
   native : chat/completions "tools" (OpenAI function calling) — gateway destekliyorsa
@@ -59,7 +59,7 @@ def _remember_mode(detected: str) -> None:
 
 SYSTEM_RULES = """
 ## Ajan çalışma kuralları
-- Sen UnixAI OS AJANISIN (ad: unixai-os). Araçlarınla sunucu verisine bakar, gerekirse canlı SALT-OKUNUR tanı çalıştırır, karar verirsin.
+- Sen TRINITY AJANISIN (ad: unixai-os). Araçlarınla sunucu verisine bakar, gerekirse canlı SALT-OKUNUR tanı çalıştırır, karar verirsin.
 - Önce veriyle doğrula: tahmin yürütme, aracı çağır. Cevabında hangi veriye dayandığını belirt.
 - Başka ajanlarla konuşabilirsin: adı "__agent_ask" ile biten araçlar uzak bir ajana doğal dilde soru sorar (ör. morpheusai__morpheus_agent_ask:
   Ansible/AAP otomasyon ajanı; standartlara uygun playbook yazar ve AAP'de check/çalıştırma yapar). Uzak ajana net, bağlamı tam bir istek yaz
@@ -184,7 +184,7 @@ def run(messages: list, context=None, ctx=None, hop: int = 0, conversation_id=No
     """Langfuse'a 'agent' gözlemi olarak izlenir. trace: karşı ajandan gelen iz bağlamı {trace_id, span_id} (aynı ize bağlanır)"""
     q = next((m.get("content") for m in reversed(messages or []) if isinstance(m, dict) and m.get("role") == "user"), "")
     who = (ctx or {}).get("user")
-    with tracing.span("UnixAI ajanı", "agent", input=q, parent=trace,
+    with tracing.span("Trinity ajanı", "agent", input=q, parent=trace,
                       trace={"langfuse.user.id": who, "langfuse.session.id": conversation_id} if not trace else None,
                       **{"langfuse.observation.metadata.origin": origin or who or "arayüz", "langfuse.observation.metadata.hop": hop,
                          "langfuse.observation.metadata.server": (context or {}).get("server")}) as sp:

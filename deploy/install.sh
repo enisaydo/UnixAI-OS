@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# UnixAI OS merkez sunucu kurulumu (RHEL 8 / 9, container'sız, root, Python standart kütüphanesi)
+# Trinity merkez sunucu kurulumu (RHEL 8 / 9, container'sız, root, Python standart kütüphanesi)
 # Kullanım (proje dizininde):  sudo bash deploy/install.sh
 #   PORT=8080 sudo bash deploy/install.sh
 set -euo pipefail
@@ -71,7 +71,7 @@ systemctl is-active -q unixai-os || { journalctl -u unixai-os -n 30 --no-pager; 
 cat <<EOF
 
 ==================================================================
- UnixAI OS kuruldu.
+ Trinity kuruldu.
  Arayüz    : http://<sunucu_ip>:$PORT   (adresler: $(hostname -I))
  Kullanıcı : admin
  Parola    : ${NEW_PASS:-"(değişmedi, $APP/.env → ADMIN_PASSWORD)"}

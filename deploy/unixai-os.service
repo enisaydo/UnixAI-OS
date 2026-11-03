@@ -1,7 +1,7 @@
-# UnixAI OS - systemd servisi (root ile çalışır; root SSH anahtarıyla hedeflere bağlanır)
+# Trinity - systemd servisi (root ile çalışır; root SSH anahtarıyla hedeflere bağlanır)
 # deploy/install.sh tarafından __APP__ / __PYTHON__ doldurularak /etc/systemd/system/unixai-os.service olarak kurulur.
 [Unit]
-Description=UnixAI OS - RHEL agentless log toplama ve GenAI analizi
+Description=Trinity - RHEL agentless log toplama ve GenAI analizi
 After=network-online.target
 Wants=network-online.target
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Langfuse — UnixAI OS ve MorpheusAI ajan izleri için kurum içi kurulum (resmi docker-compose şablonu, podman ile)
+# Langfuse — Trinity ve MorpheusAI ajan izleri için kurum içi kurulum (resmi docker-compose şablonu, podman ile)
 #
 #   sudo bash deploy/langfuse/kur.sh [--host langfuse.kurum.local] [--port 3000] [--dir /opt/langfuse]
 #                                    [--email admin@kurum.local] [--compose-file yerel/docker-compose.yml] [--guncelle]
@@ -9,7 +9,7 @@
 #   2) .env üretir: tüm CHANGEME parolaları rastgele, telemetri kapalı; organizasyon, proje, API anahtarları ve
 #      ilk kullanıcı otomatik oluşur (LANGFUSE_INIT_*). Var olan .env'e DOKUNMAZ (parolalar değişmez).
 #   3) podman compose / podman-compose / docker compose ile başlatır, hazır olmasını bekler, firewall'da portu açar
-#   4) UnixAI OS ve MorpheusAI .env dosyalarına eklenecek satırları yazar
+#   4) Trinity ve MorpheusAI .env dosyalarına eklenecek satırları yazar
 #
 # Gereksinim (Langfuse dokümanı): ≥4 çekirdek, 16 GB bellek, ~100 GB disk. Servisler: langfuse-web (UI), worker,
 # Postgres, ClickHouse, Redis, MinIO. Yalnızca UI portu (varsayılan 3000) dışarı açılır.
@@ -136,7 +136,7 @@ cat <<EOF
 $(say "Langfuse hazır: http://${HOST}:${PORT}")
   Giriş: $(val LANGFUSE_INIT_USER_EMAIL)  /  parola: $(val LANGFUSE_INIT_USER_PASSWORD)   (ilk girişten sonra değiştirin)
 
-  UnixAI OS ve MorpheusAI .env dosyalarına ekleyin, sonra servisleri yeniden başlatın:
+  Trinity ve MorpheusAI .env dosyalarına ekleyin, sonra servisleri yeniden başlatın:
 
     LANGFUSE_URL=http://${HOST}:${PORT}
     LANGFUSE_PUBLIC_KEY=$(val LANGFUSE_INIT_PROJECT_PUBLIC_KEY)

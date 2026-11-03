@@ -1,22 +1,22 @@
 #!/usr/bin/env python3
-"""İki ajanın MCP üzerinden konuşması — uçtan uca test (gerçek UnixAI OS + gerçek MorpheusAI, sahte GPT ve sahte AAP)
+"""İki ajanın MCP üzerinden konuşması — uçtan uca test (gerçek Trinity + gerçek MorpheusAI, sahte GPT ve sahte AAP)
 
   MORPHEUS_DIR=../MorpheusAI python3 scripts/agents_e2e.py
 
 Senaryo:
-  kullanıcı → UnixAI ajanı: "rhel-db01'in P1 bulgusunu doğrula, MorpheusAI'den düzeltme iste"
-    UnixAI ajanı  → unixai_get_server_findings (yerel)
-    UnixAI ajanı  → morpheusai__morpheus_agent_ask  (MCP: UnixAI → MorpheusAI /mcp)
-        MorpheusAI ajanı → unixai__unixai_get_server_findings   (MCP: MorpheusAI → UnixAI /mcp, veri aracı)
+  kullanıcı → Trinity ajanı: "rhel-db01'in P1 bulgusunu doğrula, MorpheusAI'den düzeltme iste"
+    Trinity ajanı  → unixai_get_server_findings (yerel)
+    Trinity ajanı  → morpheusai__morpheus_agent_ask  (MCP: Trinity → MorpheusAI /mcp)
+        MorpheusAI ajanı → unixai__unixai_get_server_findings   (MCP: MorpheusAI → Trinity /mcp, veri aracı)
         MorpheusAI ajanı → morpheus_create_remediation          (GenAI playbook + standart analizi)
         MorpheusAI ajanı → morpheus_launch_remediation (check)  → REDDEDİLİR: playbook henüz onaylanmadı
         MorpheusAI ajanı → "Bu playbook'u yazdım, onayınızı bekliyor"
-    UnixAI ajanı  → kullanıcıya özet + playbook (YAML) + Onayla/Reddet kartı
-  kullanıcı (UnixAI ekranı) → Onayla  → MorpheusAI (X-Approved-By)
-        → Bitbucket'a commit (ilk deneme yetki hatası → UnixAI'den "Tekrar dene")
+    Trinity ajanı  → kullanıcıya özet + playbook (YAML) + Onayla/Reddet kartı
+  kullanıcı (Trinity ekranı) → Onayla  → MorpheusAI (X-Approved-By)
+        → Bitbucket'a commit (ilk deneme yetki hatası → Trinity'den "Tekrar dene")
         → AAP proje sync → kayda özel job template → AAP check (dry-run)
   check başarılı → kullanıcı → Sunucuya uygula → AAP run
-  hop sınırı: MorpheusAI ajanı (hop 1) UnixAI ajanına geri soru soramaz (yalnızca veri araçları açık)
+  hop sınırı: MorpheusAI ajanı (hop 1) Trinity ajanına geri soru soramaz (yalnızca veri araçları açık)
 """
 import json
 import os
@@ -87,7 +87,7 @@ class Gateway(BaseHTTPRequestHandler):
             return self.j(200, {"status": "OK"}, {"authorization": "Bearer: gw-token", "expires_in": "3600"})
         msgs = body.get("messages", [])
         sysm, last = msgs[0]["content"], msgs[-1].get("content") or ""
-        if "tools" in body and "UnixAI OS AJANISIN" in sysm:
+        if "tools" in body and "TRINITY AJANISIN" in sysm:
             seen["unixai_tools"].append([t["function"]["name"] for t in body["tools"]])
             name, res = last_tool(msgs)
             if name is None:
@@ -96,7 +96,7 @@ class Gateway(BaseHTTPRequestHandler):
                 return self.j(200, tool_call("morpheusai__morpheus_agent_ask", {
                     "question": "rhel-db01 sunucusunda /u01 %96 dolu (P1). Standartlara uygun düzeltme playbook'u üret ve check modda çalıştır."}))
             ans = json.loads(res).get("answer", res) if res.startswith("{") else res
-            return self.j(200, final(f"UnixAI doğruladı: /u01 %96. MorpheusAI ajanının cevabı: {ans}"))
+            return self.j(200, final(f"Trinity doğruladı: /u01 %96. MorpheusAI ajanının cevabı: {ans}"))
         if "tools" in body and "MorpheusAI AJANISIN" in sysm:
             seen["morpheus_tools"].append([t["function"]["name"] for t in body["tools"]])
             name, res = last_tool(msgs)
@@ -114,10 +114,10 @@ class Gateway(BaseHTTPRequestHandler):
             seen["launch_result"] = res
             return self.j(200, final(f"Bu playbook'u yazdım: {seen['rid']} (uyum 95). AAP'de çalıştırmadan önce onayınızı bekliyorum."))
         if "Bu bulguyu gidermek için" in last:  # MorpheusAI playbook üretimi
-            pb = ('---\n- name: "UnixAI | /u01 alanını genişlet"\n  hosts: "{{ target_host }}"\n  become: true\n  gather_facts: true\n  tasks:\n'
+            pb = ('---\n- name: "Trinity | /u01 alanını genişlet"\n  hosts: "{{ target_host }}"\n  become: true\n  gather_facts: true\n  tasks:\n'
                   '    - name: "VG boş alanını kontrol et"\n      ansible.builtin.command: vgs --noheadings -o vg_free vg_data\n      register: unixai_vg\n      changed_when: false\n      check_mode: false\n      tags: [unixai_remediation]\n')
             return self.j(200, final(json.dumps({"title": "/u01 genişletme", "summary": "VG kontrolü", "risk": "medium", "disruptive": False, "playbook": pb})))
-        if "şemaya uyan geçerli JSON" in last:  # MorpheusAI standart analizi / UnixAI sunucu analizi
+        if "şemaya uyan geçerli JSON" in last:  # MorpheusAI standart analizi / Trinity sunucu analizi
             return self.j(200, final(json.dumps({"score": 95, "status": "compliant", "summary": "uyumlu", "findings": [], "missing": []})))
         return self.j(200, final("tamam"))
 
@@ -304,13 +304,13 @@ def main():
         c1 = call(UX, "/mcp/connections", {"name": "morpheusai", "url": f"http://127.0.0.1:{MP}/mcp", "token": mp_tok, "description": "Ansible/AAP otomasyon ajanı"})
         c2 = call(MP, "/mcp/connections", {"name": "unixai", "url": f"http://127.0.0.1:{UX}/mcp", "token": ux_tok, "description": "RHEL gözlem ajanı"})
         t1, t2 = call(UX, f"/mcp/connections/{c1['id']}/test", {}), call(MP, f"/mcp/connections/{c2['id']}/test", {})
-        check(t1["ok"] and t2["ok"], f"iki yönlü MCP bağlantısı: UnixAI→MorpheusAI ({len(t1['tools'])} araç), MorpheusAI→UnixAI ({len(t2['tools'])} araç)")
+        check(t1["ok"] and t2["ok"], f"iki yönlü MCP bağlantısı: Trinity→MorpheusAI ({len(t1['tools'])} araç), MorpheusAI→Trinity ({len(t2['tools'])} araç)")
 
         for _ in range(60):  # MorpheusAI düzeltme akışı aktarımı (SSE) bağlansın
             if (call(UX, "/integrations/morpheus").get("relay") or {}).get("connected"):
                 break
             time.sleep(0.25)
-        check(call(UX, "/integrations/morpheus")["relay"]["connected"], "UnixAI, MorpheusAI düzeltme akışını dinliyor (/api/remediations/events)")
+        check(call(UX, "/integrations/morpheus")["relay"]["connected"], "Trinity, MorpheusAI düzeltme akışını dinliyor (/api/remediations/events)")
         live_ux, live_mp = [], []
         for port, sink in ((UX, live_ux), (MP, live_mp)):
             threading.Thread(target=sse_collect, args=(port, sink), daemon=True).start()
@@ -324,35 +324,35 @@ def main():
         print("\n[Ajanlar konuşuyor]")
         r = call(UX, "/chat", {"messages": [{"role": "user", "content": "rhel-db01'in P1 bulgusunu doğrula ve MorpheusAI'den düzeltme iste"}]})
         tr = r["trace"]
-        print("  UnixAI ajanı cevabı:", r["reply"][:220].replace("\n", " "))
-        check(r["mode"] == "native" and [t["tool"] for t in tr] == ["unixai_get_server_findings", "morpheusai__morpheus_agent_ask"], "UnixAI ajanı: yerel veri aracı → MorpheusAI ajanına soru")
+        print("  Trinity ajanı cevabı:", r["reply"][:220].replace("\n", " "))
+        check(r["mode"] == "native" and [t["tool"] for t in tr] == ["unixai_get_server_findings", "morpheusai__morpheus_agent_ask"], "Trinity ajanı: yerel veri aracı → MorpheusAI ajanına soru")
         check(tr[1]["remoteAgent"] and tr[1]["where"] == "morpheusai" and tr[1]["ok"], "ajanlar arası çağrı MCP üzerinden başarılı")
-        check(re.search(r"rem-\d{8}-[0-9a-f]{8}", r["reply"]) is not None and "onay" in r["reply"], "UnixAI cevabında MorpheusAI'nin yazdığı kayıt ve onay isteği var")
+        check(re.search(r"rem-\d{8}-[0-9a-f]{8}", r["reply"]) is not None and "onay" in r["reply"], "Trinity cevabında MorpheusAI'nin yazdığı kayıt ve onay isteği var")
         check(len(r.get("remediations") or []) == 1 and "hosts:" in r["remediations"][0].get("playbook", ""), "sohbet cevabı playbook'u (YAML) onay kartı için içeriyor")
-        check("morpheusai__morpheus_agent_ask" in seen["unixai_tools"][0], "UnixAI ajanı MorpheusAI'nin araçlarını görüyor")
+        check("morpheusai__morpheus_agent_ask" in seen["unixai_tools"][0], "Trinity ajanı MorpheusAI'nin araçlarını görüyor")
         check("unixai__unixai_agent_ask" not in seen["morpheus_tools"][0] and "unixai__unixai_get_server_findings" in seen["morpheus_tools"][0],
-              "hop sınırı: MorpheusAI ajanı UnixAI'nin veri araçlarını görüyor, ajanına geri soru soramıyor")
+              "hop sınırı: MorpheusAI ajanı Trinity'nin veri araçlarını görüyor, ajanına geri soru soramıyor")
         mconv = call(MP, "/agent/conversations")[0]
         check(mconv["origin"] == "unixai-os" and mconv["hop"] == 1 and mconv["tools"] == ["unixai__unixai_get_server_findings", "morpheus_create_remediation", "morpheus_launch_remediation"],
-              "MorpheusAI ajanı: UnixAI'den veri aldı → playbook üretti → onaysız check denemesi reddedildi (konuşma kaydı)")
+              "MorpheusAI ajanı: Trinity'den veri aldı → playbook üretti → onaysız check denemesi reddedildi (konuşma kaydı)")
         check(not seen["aap"] and "onay" in (seen.get("launch_result") or ""), "onay olmadan AAP'ye hiçbir şey gönderilmedi (ajanın check denemesi reddedildi)")
         rems = call(MP, "/remediations")["items"]
         check(len(rems) == 1 and rems[0]["compliance"]["score"] == 95 and rems[0]["status"] == "generated" and not rems[0]["approval"],
               "düzeltme kaydı: uyum 95, onay bekliyor")
         uconv = call(UX, f"/agent/conversations/{r['conversationId']}")
-        check(uconv["trace"][1]["result"] and "rem-" in uconv["trace"][1]["result"], "UnixAI konuşma kaydında MorpheusAI ajanının cevabı saklandı")
+        check(uconv["trace"][1]["result"] and "rem-" in uconv["trace"][1]["result"], "Trinity konuşma kaydında MorpheusAI ajanının cevabı saklandı")
         print("\n[Langfuse izleri]")
         for _ in range(40):  # arka plan gönderimi (≈2 sn)
-            if any(x["name"] == "MorpheusAI ajanı" for x in seen["langfuse"]) and any(x["name"] == "UnixAI ajanı" for x in seen["langfuse"]):
+            if any(x["name"] == "MorpheusAI ajanı" for x in seen["langfuse"]) and any(x["name"] == "Trinity ajanı" for x in seen["langfuse"]):
                 break
             time.sleep(0.25)
         lf = seen["langfuse"]
-        ux_root = next((x for x in lf if x["svc"] == "unixai-os" and x["name"] == "UnixAI ajanı"), None)
+        ux_root = next((x for x in lf if x["svc"] == "unixai-os" and x["name"] == "Trinity ajanı"), None)
         ask = next((x for x in lf if x["svc"] == "unixai-os" and x["name"] == "araç · morpheusai__morpheus_agent_ask"), None)
         mp_root = next((x for x in lf if x["svc"] == "morpheusai" and x["name"] == "MorpheusAI ajanı"), None)
         check(lf and all(x["ok"] for x in lf), f"Langfuse: iki uygulama OTLP/HTTP ile gönderdi, kimlik doğrulama doğru ({len(lf)} gözlem)")
         check(ux_root and mp_root and ask and mp_root["trace"] == ux_root["trace"] and mp_root["parent"] == ask["id"] and ask["parent"] == ux_root["id"],
-              "Langfuse: iki ajanın konuşması TEK iz — MorpheusAI ajanı, UnixAI'nin 'morpheus_agent_ask' adımının altında")
+              "Langfuse: iki ajanın konuşması TEK iz — MorpheusAI ajanı, Trinity'nin 'morpheus_agent_ask' adımının altında")
         same = [x for x in lf if ux_root and x["trace"] == ux_root["trace"]]
         types = {x["attrs"].get("langfuse.observation.type") for x in same}
         gens = [x for x in same if x["attrs"].get("langfuse.observation.type") == "generation"]
@@ -371,50 +371,50 @@ def main():
         ux_a2a = has(live_ux, type="a2a", dir="giden", peer="morpheusai")
         check(len(ux_a2a) == 2 and ux_a2a[0]["phase"] == "start" and "u01" in ux_a2a[0].get("question", "") and ux_a2a[1]["phase"] == "end" and ux_a2a[1]["ok"]
               and ux_a2a[1]["rid"] == ux_a2a[0]["rid"] and ux_a2a[1].get("remediations") == 1,
-              "UnixAI canlı: MorpheusAI'ye soru başladı → cevap geldi (1 playbook) aynı olay kimliğiyle")
+              "Trinity canlı: MorpheusAI'ye soru başladı → cevap geldi (1 playbook) aynı olay kimliğiyle")
         check(has(live_ux, type="mcp", dir="giden", tool="morpheus_agent_ask", phase="start")
               and has(live_ux, type="mcp", dir="gelen", peer="morpheusai", tool="unixai_get_server_findings", phase="end", ok=True),
-              "UnixAI canlı: giden MCP morpheus_agent_ask ve MorpheusAI'den gelen unixai_get_server_findings")
+              "Trinity canlı: giden MCP morpheus_agent_ask ve MorpheusAI'den gelen unixai_get_server_findings")
         check([e["tool"] for e in has(live_ux, type="step", phase="start")][:2] == ["unixai_get_server_findings", "morpheusai__morpheus_agent_ask"],
-              "UnixAI canlı: ajan adımları sırayla")
+              "Trinity canlı: ajan adımları sırayla")
         mp_a2a = has(live_mp, type="a2a", dir="gelen")
         check(len(mp_a2a) == 2 and mp_a2a[0]["phase"] == "start" and mp_a2a[1].get("remediations") == 1 and mp_a2a[0]["peer"] == "unixai-os",
-              "MorpheusAI canlı: UnixAI'den gelen soru → cevap (1 playbook)")
+              "MorpheusAI canlı: Trinity'den gelen soru → cevap (1 playbook)")
         mp_steps = [e["tool"] for e in has(live_mp, type="step", phase="start")]
         check(mp_steps[:3] == ["unixai__unixai_get_server_findings", "morpheus_create_remediation", "morpheus_launch_remediation"]
               and has(live_mp, type="mcp", dir="gelen", tool="morpheus_agent_ask", phase="start") and has(live_mp, type="mcp", dir="giden", tool="unixai_get_server_findings"),
-              "MorpheusAI canlı: gelen MCP → ajan adımları (UnixAI'ye veri sorusu, playbook üretimi) görünüyor")
+              "MorpheusAI canlı: gelen MCP → ajan adımları (Trinity'ye veri sorusu, playbook üretimi) görünüyor")
         order = [e["id"] for e in live_mp if e.get("type") in ("mcp", "a2a", "step")]
         check(order == sorted(order) and "Bearer" not in json.dumps(live_ux + live_mp), "olaylar sıralı, token sızmıyor")
         print("\n[Ajanlar arası konuşma kaydı]")
         ua = call(UX, "/a2a")["items"]
         check(len(ua) == 1 and ua[0]["direction"] == "giden" and ua[0]["peer"] == "morpheusai" and ua[0]["server"] == "rhel-db01",
-              "UnixAI: giden konuşma ayrı kayıtta (karşı ajan, sunucu)")
+              "Trinity: giden konuşma ayrı kayıtta (karşı ajan, sunucu)")
         udet = call(UX, f"/a2a/{ua[0]['id']}")
         rem = (udet["remediations"] or [{}])[0]
         check("hosts: \"{{ target_host }}\"" in (rem.get("playbook") or "") and rem.get("score") == 95 and rem.get("url", "").endswith(f"/#/remediations/{rem.get('id')}"),
-              "UnixAI: MorpheusAI'nin hazırladığı playbook YAML'ı, uyum skoru ve MorpheusAI bağlantısı kayıtta")
-        check(len(call(UX, "/a2a?server=rhel-db01")["items"]) == 1 and not call(UX, "/a2a?server=rhel-web01")["items"], "UnixAI: sunucuya göre filtreleme")
+              "Trinity: MorpheusAI'nin hazırladığı playbook YAML'ı, uyum skoru ve MorpheusAI bağlantısı kayıtta")
+        check(len(call(UX, "/a2a?server=rhel-db01")["items"]) == 1 and not call(UX, "/a2a?server=rhel-web01")["items"], "Trinity: sunucuya göre filtreleme")
         ma = call(MP, "/a2a")["items"]
         check(len(ma) == 1 and ma[0]["direction"] == "gelen" and ma[0]["peer"] == "unixai-os" and ma[0]["server"] == "rhel-db01" and ma[0]["remediations"],
-              "MorpheusAI: gelen konuşma ayrı kayıtta (UnixAI ajanından, sunucu, playbook)")
-        print("\n[Onay — UnixAI ekranından]")
+              "MorpheusAI: gelen konuşma ayrı kayıtta (Trinity ajanından, sunucu, playbook)")
+        print("\n[Onay — Trinity ekranından]")
         rid = rems[0]["id"]
         ap = call(UX, "/approvals")["items"]
-        check(len(ap) == 1 and ap[0]["id"] == rid and ap[0]["server"] == "rhel-db01", "UnixAI: onay bekleyen playbook listede (menü rozeti / dashboard)")
+        check(len(ap) == 1 and ap[0]["id"] == rid and ap[0]["server"] == "rhel-db01", "Trinity: onay bekleyen playbook listede (menü rozeti / dashboard)")
         try:
             call(UX, f"/remediations/{rid}/approve", {}, token="sahte-api-token-123456789")
-            check(False, "API token ile UnixAI üzerinden onay engellendi")
+            check(False, "API token ile Trinity üzerinden onay engellendi")
         except RuntimeError as e:
-            check(" 401 " in str(e) or " 403 " in str(e), "API token ile UnixAI üzerinden onay engellendi")
+            check(" 401 " in str(e) or " 403 " in str(e), "API token ile Trinity üzerinden onay engellendi")
         a = call(UX, f"/remediations/{rid}/approve", {}, headers={"x-unixai-user": "EnisA"})
         check(a["approval"]["by"] == "EnisA (unixai üzerinden)" and a["status"] == "publish_failed" and "403" in (a.get("scm") or {}).get("error", "") and not seen["aap"],
-              "onay aktarıldı (EnisA); Bitbucket yetki hatası UnixAI kartında görünüyor, AAP'de iş yok")
+              "onay aktarıldı (EnisA); Bitbucket yetki hatası Trinity kartında görünüyor, AAP'de iş yok")
         seen["bb_deny"] = False
         a = call(UX, f"/remediations/{rid}/publish", {}, headers={"x-unixai-user": "EnisA"})
         fp = f"playbooks/unixai/rhel-db01/{rid}.yml"
         check(fp in seen["bb"] and 'hosts: "{{ target_host }}"' in seen["bb"][fp]["content"] and seen["bb"][fp]["branch"] == "main" and "EnisA" in seen["bb"][fp]["message"],
-              f"UnixAI'den 'Tekrar dene' → playbook Bitbucket'a commit edildi ({fp})")
+              f"Trinity'den 'Tekrar dene' → playbook Bitbucket'a commit edildi ({fp})")
         t = (seen["templates"] or [{}])[0]
         check(t.get("playbook") == fp and t.get("project") == 7 and a["aapTemplate"]["id"] == str(t.get("id")), "AAP projesi sync edildi → kayda özel job template oluşturuldu")
         check(len(seen["aap"]) == 1 and seen["aap"][0]["job_type"] == "check" and seen["aap"][0]["limit"] == "rhel-db01" and seen["aap"][0]["template"] == str(t.get("id")),
@@ -429,19 +429,19 @@ def main():
         time.sleep(3.2)
         check(call(UX, f"/remediations/{rid}")["status"] == "check_ok", "check başarılı (durum MorpheusAI'den yenilendi)")
         run = call(UX, f"/remediations/{rid}/launch", {"mode": "run"}, headers={"x-unixai-user": "EnisA"})
-        check(len(seen["aap"]) == 2 and seen["aap"][1]["job_type"] == "run" and run["status"] == "running", "kişi UnixAI'den 'Sunucuya uygula' dedi → AAP run")
+        check(len(seen["aap"]) == 2 and seen["aap"][1]["job_type"] == "run" and run["status"] == "running", "kişi Trinity'den 'Sunucuya uygula' dedi → AAP run")
         time.sleep(0.4)
         check(has(live_ux, type="http", dir="giden", method="POST", path=f"/api/remediations/{rid}/approve", status=200)
               and [e for e in has(live_mp, type="http", dir="gelen", path=f"/api/remediations/{rid}/approve") if e.get("by") == "EnisA"],
-              "canlı: onay isteği UnixAI'den giden ve MorpheusAI'ye gelen REST olarak (onaylayan EnisA) göründü")
+              "canlı: onay isteği Trinity'den giden ve MorpheusAI'ye gelen REST olarak (onaylayan EnisA) göründü")
         rem_ux = [e for e in live_ux if e.get("type") == "rem" and e.get("src") == "morpheusai" and e.get("rem") == rid]
         stages = [e["stage"] for e in rem_ux]
         check(all(x in stages for x in ("generated", "approved", "commit", "template", "launch")),
-              f"UnixAI canlı: MorpheusAI düzeltme akışı aktarıldı (AKIŞ: {' → '.join(dict.fromkeys(stages))})")
+              f"Trinity canlı: MorpheusAI düzeltme akışı aktarıldı (AKIŞ: {' → '.join(dict.fromkeys(stages))})")
         tk = call(UX, "/morpheus/tasks")["items"]
         td = call(UX, f"/remediations/{rid}")
         check(any(x["id"] == rid and x["server"] == "rhel-db01" and x["score"] == 95 for x in tk) and len(td["events"]) >= 6 and td["playbook"],
-              f"Geçmiş · Görevler: MorpheusAI'deki görevler UnixAI'de listeleniyor ({len(tk)} görev), zaman çizelgesi {len(td['events'])} olay")
+              f"Geçmiş · Görevler: MorpheusAI'deki görevler Trinity'de listeleniyor ({len(tk)} görev), zaman çizelgesi {len(td['events'])} olay")
         cats_ux = {c["category"]: c for c in call(UX, "/oplogs")["categories"]}
         cats_mp = {c["category"]: c for c in call(MP, "/oplogs")["categories"]}
         check(cats_ux["canli"]["files"] and cats_mp["canli"]["files"], "canlı akış kalıcı: logs/canli/ iki uygulamada da yazıldı (yeniden başlayınca geri yüklenir)")
@@ -458,7 +458,7 @@ def main():
         check(all(p >= 0 for p in pos) and pos == sorted(pos), "MorpheusAI duzeltme logu: üretim → onay → hata → commit → sync → template → check → run sırasıyla")
         ucats = {c["category"]: c for c in call(UX, "/oplogs")["categories"]}
         check(all(ucats.get(c, {}).get("files") for c in ("islem", "morpheus", "genai", "mcp-istemci", "mcp-sunucu", "ajan", "ajanlar-arasi")),
-              "UnixAI: islem, morpheus, genai, mcp-istemci, mcp-sunucu, ajan, ajanlar-arasi ayrı dosyalarda")
+              "Trinity: islem, morpheus, genai, mcp-istemci, mcp-sunucu, ajan, ajanlar-arasi ayrı dosyalarda")
         call(UX, "/chat", {"messages": [{"role": "user", "content": "rhel-db01 nasıl?"}], "agent": False})
         check(len(call(UX, "/a2a")["items"]) == 1, "kullanıcı sohbetleri ajanlar arası kayda karışmıyor")
         print("\n[Pixel Office köprüsü]")
@@ -488,7 +488,7 @@ def main():
         st = call(UX, "/pixel/status")
         check(st["enabled"] and st["sent"] > 0 and not st["failed"], "UnixAI /api/pixel/status: gönderim başarılı")
         if os.environ.get("E2E_KEEP"):  # arayüzü incelemek için süreçleri açık tut
-            print(f"Arayüzler: UnixAI http://127.0.0.1:{UX}  ·  MorpheusAI http://127.0.0.1:{MP}", flush=True)
+            print(f"Arayüzler: Trinity http://127.0.0.1:{UX}  ·  MorpheusAI http://127.0.0.1:{MP}", flush=True)
             time.sleep(int(os.environ["E2E_KEEP"]))
     finally:
         ux.kill()

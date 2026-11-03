@@ -1,8 +1,8 @@
 # Langfuse — ajan izleme arayüzü (kurum içi)
 
-UnixAI OS ve MorpheusAI'nin her ajan çalışması, araç adımı ve GPT çağrısı (model, token, süre) Langfuse'a
-**OpenTelemetry (OTLP/HTTP JSON)** ile gönderilir. UnixAI MorpheusAI'ye soru sorduğunda iz bağlamı MCP üzerinden
-aktarılır: **iki ajanın konuşması Langfuse'ta tek iz** olarak görünür (UnixAI ajanı → `morpheus_agent_ask` adımı →
+Trinity ve MorpheusAI'nin her ajan çalışması, araç adımı ve GPT çağrısı (model, token, süre) Langfuse'a
+**OpenTelemetry (OTLP/HTTP JSON)** ile gönderilir. Trinity MorpheusAI'ye soru sorduğunda iz bağlamı MCP üzerinden
+aktarılır: **iki ajanın konuşması Langfuse'ta tek iz** olarak görünür (Trinity ajanı → `morpheus_agent_ask` adımı →
 MorpheusAI ajanı → playbook üretimi → GPT çağrıları).
 
 Langfuse MIT lisanslıdır ve kurum içine kurulur; veri dışarı çıkmaz. Kurulum resmi docker-compose şablonunu kullanır.
@@ -33,7 +33,7 @@ LANGFUSE_PROJECT_ID=unixai-morpheus
 
 ## Uygulamalarda
 
-- Konuşma sayfasında (UnixAI → MorpheusAI sekmesi, MorpheusAI → UnixAI sekmesi) **Langfuse izleri ↗** ve her
+- Konuşma sayfasında (Trinity → MorpheusAI sekmesi, MorpheusAI → Trinity sekmesi) **Langfuse izleri ↗** ve her
   konuşma/görev/sohbet ayrıntısında **Langfuse'ta aç ↗**
 - `GET /api/tracing/status`: açık mı, gönderilen/düşen gözlem sayısı, son hata
 - Langfuse kapalı veya erişilemezse uygulamalar etkilenmez; izler düşer
@@ -42,7 +42,7 @@ LANGFUSE_PROJECT_ID=unixai-morpheus
 
 | Gözlem | İçerik |
 |---|---|
-| `UnixAI ajanı` / `MorpheusAI ajanı` (agent) | soru, cevap, kullanıcı, hop |
+| `Trinity ajanı` / `MorpheusAI ajanı` (agent) | soru, cevap, kullanıcı, hop |
 | `araç · …` (tool / agent) | argümanlar, sonuç, nerede çalıştı (yerel / bağlı MCP) |
 | `GPT · agent`, `GPT · chat`… (generation) | model, girdi/çıktı token, süre |
 | `Düzeltme playbook'u · sunucu` (chain) | playbook üretimi + standart analizi |

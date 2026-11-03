@@ -9,7 +9,7 @@
  *   kendi senaryosu film olarak oynar ve ayrıntı panelindeki mesajlar adım adım açılır. Boştayken karakterler kendi
  *   işlerini yapar. Konum düğmeleri, sürükleme ve Ctrl+tekerlek ile gezilir.
  *
- *   Bağımlılık yok; MorpheusAI ve UnixAI OS'ta aynı dosya. "Efektler" anahtarı / prefers-reduced-motion hareketi kapatır.
+ *   Bağımlılık yok; MorpheusAI ve Trinity'de aynı dosya. "Efektler" anahtarı / prefers-reduced-motion hareketi kapatır.
  */
 (function () {
   "use strict";
@@ -119,7 +119,7 @@
       rackX,
       makeChars() {
         return {
-          unixai: { kind: "unixai", x: SPOT.kiosk, dir: -1, speed: 230, action: "type", label: "UnixAI ajanı" },
+          unixai: { kind: "unixai", x: SPOT.kiosk, dir: -1, speed: 230, action: "type", label: "Trinity ajanı" },
           morpheus: { kind: "morpheus", x: SPOT.chair, dir: -1, speed: 260, action: "sit", label: "MorpheusAI ajanı" },
         };
       },
@@ -207,7 +207,7 @@
           A.action = null;
           await d.say(A, server ? `${server}'de bir sorun var. MorpheusAI'ye gidip soralım!` : "MorpheusAI'ye gidip soralım!", 2400);
         } else {
-          d.status(`${P.morpheus} operatör konsolunda — UnixAI'ye soru hazırlanıyor`);
+          d.status(`${P.morpheus} operatör konsolunda — Trinity'ye soru hazırlanıyor`);
           await d.walk(A, SPOT.console + 10); A.dir = -1; A.action = "type"; await d.wait(1600); A.action = null;
           await d.say(A, "Tux'a soralım. Çıkış telefonuna!", 2000);
           await d.walk(A, SPOT.phone + 24); A.dir = -1; U.fx.phoneRing = true; await d.wait(900);
@@ -618,7 +618,7 @@
     const W = {
       id: "office", label: "Garanti BBVA ofis evreni", width: WW, bg: "#0b1622", parallax: 0.6, dark: false,
       subtitle: "Garanti BBVA Teknoloji · Linux ekibi ⇄ Otomasyon ekibi",
-      prompts: { unixai: "Deniz · Linux Sistem Yönetimi (UnixAI)", morpheus: "Kaan · Otomasyon / Ansible (MorpheusAI)" },
+      prompts: { unixai: "Deniz · Linux Sistem Yönetimi (Trinity)", morpheus: "Kaan · Otomasyon / Ansible (MorpheusAI)" },
       colors: { unixai: TEAL, morpheus: BRAND },
       bubble: { bg: "rgba(255,255,255,0.97)", fg: NAVY },
       places: [
@@ -634,7 +634,7 @@
       rackX,
       makeChars() {
         return {
-          unixai: { kind: "unixai", x: SPOT.denizChair, dir: 1, speed: 190, action: "type", label: "Deniz · Linux (UnixAI)" },
+          unixai: { kind: "unixai", x: SPOT.denizChair, dir: 1, speed: 190, action: "type", label: "Deniz · Linux (Trinity)" },
           morpheus: { kind: "morpheus", x: SPOT.kaanChair, dir: -1, speed: 200, action: "type", label: "Kaan · Otomasyon (MorpheusAI)" },
         };
       },
@@ -718,7 +718,7 @@
         if (askerK === "unixai") {
           d.chapter("Bölüm 1 · Linux ekibi masası");
           U.fx.monitorAlert = true;
-          d.status(`Deniz'in ekranında alarm: ${server ? `${server} — ` : ""}UnixAI bir bulgu buldu`);
+          d.status(`Deniz'in ekranında alarm: ${server ? `${server} — ` : ""}Trinity bir bulgu buldu`);
           await d.wait(1600);
           await d.say(A, server ? `Hmm, ${server}'de bir sorun var. Önce sistem odasına bir bakayım.` : "Filoda bir şey var, Kaan'a soralım.", 2600);
           if (server) {
@@ -939,7 +939,7 @@
     }
     function yaml(ctx, x, y, w, h) {
       ctx.fillStyle = "#1e1e2a"; ctx.fillRect(x, y, w, h);
-      const ls = [["- name: ", "#ff79c6", "UnixAI | /u01", "#f1fa8c"], ["  hosts: ", "#ff79c6", "{{ target }}", "#8be9fd"], ["  become: ", "#ff79c6", "true", "#bd93f9"], ["  tasks:", "#ff79c6", "", ""], ["    - lvextend", "#50fa7b", "", ""], ["    - xfs_growfs", "#50fa7b", "", ""]];
+      const ls = [["- name: ", "#ff79c6", "Trinity | /u01", "#f1fa8c"], ["  hosts: ", "#ff79c6", "{{ target }}", "#8be9fd"], ["  become: ", "#ff79c6", "true", "#bd93f9"], ["  tasks:", "#ff79c6", "", ""], ["    - lvextend", "#50fa7b", "", ""], ["    - xfs_growfs", "#50fa7b", "", ""]];
       const off = Math.floor(U.t / 900) % 2;
       ctx.font = "6.5px 'Red Hat Mono', monospace"; ctx.textAlign = "left";
       for (let i = 0; i < 5; i++) { const l = ls[(i + off) % ls.length]; ctx.fillStyle = l[1]; ctx.fillText(l[0], x + 3, y + 8 + i * 7.5); ctx.fillStyle = l[3] || "#fff"; ctx.fillText(l[2], x + 3 + l[0].length * 3.9, y + 8 + i * 7.5); }
@@ -962,7 +962,7 @@
     }
 
     function linuxDesk(ctx) {
-      teamSign(ctx, 760, "Linux Sistem Yönetimi", "RHEL · UnixAI OS", TEAL);
+      teamSign(ctx, 760, "Linux Sistem Yönetimi", "RHEL · Trinity", TEAL);
       ctx.strokeStyle = "#c5cfd6"; ctx.lineWidth = 1; ctx.strokeRect(940, 140, 70, 90); // pano
       ctx.fillStyle = "#fffbe6"; ctx.fillRect(948, 150, 24, 20); ctx.fillStyle = "#e6f6ff"; ctx.fillRect(978, 156, 24, 20); ctx.fillStyle = "#e9ffe9"; ctx.fillRect(955, 182, 26, 22);
       // Tux çıkartması (posterde)
@@ -1533,7 +1533,7 @@
     }
   }
 
-  const kname = (k) => (k === "unixai" ? "UnixAI" : "MorpheusAI");
+  const kname = (k) => (k === "unixai" ? "Trinity" : "MorpheusAI");
 
   /** Canlı moda geç: konuşma seçimi bırakılır, karakterler o anki isteklere göre hareket eder */
   function liveMode(fromUser) {
@@ -1693,7 +1693,7 @@
         }
       };
     }
-    /* toplama (UnixAI): Tux rack'leri dolaşır */
+    /* toplama (Trinity): Tux rack'leri dolaşır */
     if (ev.type === "run") {
       if (ev.phase === "start") return async (L) => { chapter("● Toplama başladı"); await L.say(tux, `Toplama başladı · ${(ev.servers || []).length} sunucu`, 1800); };
       if (ev.phase === "server") return async (L) => {

@@ -10,10 +10,11 @@
   tani           canlı salt-okunur tanı komutları
   genai          TMS token + GPT çağrıları
   morpheus       MorpheusAI köprüsü (bulgu gönderimi, onay aktarımı, durum)
+  satellite      Red Hat Satellite API çağrıları ve CVE etki analizleri
   mcp-istemci    bağlı MCP sunucularına giden çağrılar
   mcp-sunucu     /mcp'ye gelen çağrılar
   ajan           ajanın her araç adımı
-  ajanlar-arasi  UnixAI ⇄ MorpheusAI ajan konuşmaları
+  ajanlar-arasi  Trinity ⇄ MorpheusAI ajan konuşmaları
 
 .env: LOG_DIR (varsayılan ./logs; AI_LOG_DIR da kabul edilir), LOG_RETENTION_DAYS (90), LOG_FILE=false (dosyaya yazma)
 Parola/token değerleri yazılmaz (HTTP çağrılarında logger maskeler).
@@ -43,6 +44,7 @@ CATEGORIES = {
     "tani": "Canlı tanı komutları",
     "genai": "GenAI (TMS + GPT) çağrıları",
     "morpheus": "MorpheusAI köprüsü",
+    "satellite": "Red Hat Satellite (CVE etki analizi)",
     "mcp-istemci": "Giden MCP çağrıları",
     "mcp-sunucu": "Gelen MCP çağrıları (/mcp)",
     "ajan": "Ajan adımları",

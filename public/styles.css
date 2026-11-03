@@ -1,4 +1,4 @@
-/* UnixAI OS — operasyon konsolu tasarımı (koyu varsayılan, açık tema seçilebilir) */
+/* Trinity — operasyon konsolu tasarımı (koyu varsayılan, açık tema seçilebilir) */
 
 /* ================================================================== */
 /*  Tasarım token'ları                                                  */
@@ -203,6 +203,7 @@ input[type="checkbox"] { accent-color: var(--primary); width: 15px; height: 15px
 .alert { border: 1px solid; border-left-width: 3px; border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; font-size: 13px; }
 .alert.danger { border-color: var(--crit); background: var(--crit-soft); }
 .alert.info { border-color: var(--info); background: var(--info-soft); }
+.alert.warn { border-color: var(--warn); background: var(--warn-soft); }
 .warn-banner { border-color: var(--warn); background: var(--warn-soft); display: flex; gap: 10px; align-items: center; }
 
 .empty { text-align: center; color: var(--muted); padding: 48px 16px; }
@@ -685,3 +686,18 @@ svg.i.i-xs { width: 13px; height: 13px; vertical-align: -2px; }
 #olFile { margin: 4px 0 10px; }
 .ol-json { max-height: 360px; overflow: auto; white-space: pre; font-size: 11.5px; min-width: 380px; }
 tr.row-err td:first-child { box-shadow: inset 3px 0 0 var(--crit); }
+
+/* ---------- Satellite · CVE takibi ---------- */
+.sec-top { display: grid; grid-template-columns: 1fr minmax(260px, 340px); gap: 18px; align-items: end; margin-bottom: 8px; }
+.sec-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 12px; }
+.sec-kpis .kpi { margin: 0; }
+.cve-quick { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+.row-inline { display: flex; gap: 8px; }
+.row-inline .input { flex: 1; min-width: 0; }
+.cve-form { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.cve-form .input { flex: 0 1 260px; }
+.cve-recent { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.cve-recent li { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+pre.cmd { margin: 6px 0 0; padding: 8px 10px; border-radius: 8px; background: var(--surface-2, rgba(127,127,127,.1)); font: 12px/1.5 var(--mono, monospace); white-space: pre-wrap; }
+@media (max-width: 1100px) { .sec-top { grid-template-columns: 1fr; } .sec-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .sec-kpis { grid-template-columns: 1fr; } }

@@ -5,7 +5,7 @@ Barındırma (başka alanlardan gelen ajanlar / MCP istemcileri bağlanır):
   Kimlik: Authorization: Bearer <token>  — arayüzden üretilen erişim token'ları (salt-okunur seçeneği) veya .env UNIXAI_API_TOKEN
   Origin: tarayıcıdan gelen isteklerde Origin izin listesinde olmalı (DNS rebinding koruması); CORS başlıkları buna göre verilir
 
-İstemci (UnixAI ajanı başka MCP sunucularını kullanır; ör. MorpheusAI, başka ekiplerin ajanları):
+İstemci (Trinity ajanı başka MCP sunucularını kullanır; ör. MorpheusAI, başka ekiplerin ajanları):
   Bağlantılar arayüzden eklenir (ad, URL, token); araçları ajana "<bağlantı>__<araç>" adıyla açılır.
 
   data/mcp.json  (0600): { allowedOrigins[], tokens[{id,name,hash,prefix,readonly,...}], connections[{id,name,url,token,enabled,...}] }
@@ -31,8 +31,8 @@ from .store import iso_now, read_json, write_json
 FILE = "mcp.json"
 MASK = "••••••••"
 VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"]
-SERVER_INFO = {"name": "unixai-os", "title": "UnixAI OS (RHEL agentless gözlem ajanı)", "version": "2.0.0"}
-INSTRUCTIONS = ("UnixAI OS, RHEL sunuculardan agentless log/metrik toplayan ve anomalileri aksiyon maddelerine çeviren bir ajandır. "
+SERVER_INFO = {"name": "unixai-os", "title": "Trinity (RHEL agentless gözlem ajanı)", "version": "2.0.0"}
+INSTRUCTIONS = ("Trinity, RHEL sunuculardan agentless log/metrik toplayan ve anomalileri aksiyon maddelerine çeviren bir ajandır. "
                 "Sunucu bulguları, ham loglar ve salt-okunur canlı tanı araçları sunar; doğal dille konuşmak için unixai_agent_ask kullanın.")
 _lock = threading.RLock()
 
@@ -278,7 +278,7 @@ class RemoteMCP:
         if self.info:
             return
         r = self._rpc("initialize", {"protocolVersion": VERSIONS[0], "capabilities": {},
-                                      "clientInfo": {"name": "unixai-os", "title": "UnixAI OS ajanı", "version": SERVER_INFO["version"]}}, 30000)
+                                      "clientInfo": {"name": "unixai-os", "title": "Trinity ajanı", "version": SERVER_INFO["version"]}}, 30000)
         self.protocol = r.get("protocolVersion") if r.get("protocolVersion") in VERSIONS else VERSIONS[0]
         self.info = {"serverInfo": r.get("serverInfo"), "instructions": r.get("instructions"), "protocolVersion": self.protocol}
         self._post({"jsonrpc": "2.0", "method": "notifications/initialized"}, 30000)

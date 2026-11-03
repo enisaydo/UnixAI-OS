@@ -12,7 +12,7 @@
 Opsiyonel: LDAP_USER_FILTER, LDAP_REQUIRED_GROUP, LDAP_ADMIN_GROUP, LDAP_STARTTLS, LDAP_TLS_INSECURE, LDAP_DISPLAY_NAME_ATTR
 
 LDAP yoksa yerel yönetici: ADMIN_USER (varsayılan admin) + ADMIN_PASSWORD. İkisi de yoksa giriş kapalıdır
-(yalnızca deneme için; UnixAI root SSH anahtarı kullandığı için sunucuda mutlaka birini açın).
+(yalnızca deneme için; Trinity root SSH anahtarı kullandığı için sunucuda mutlaka birini açın).
 
 Oturum: HMAC imzalı, HttpOnly çerez (SESSION_TTL_HOURS, varsayılan 8 saat).
 """

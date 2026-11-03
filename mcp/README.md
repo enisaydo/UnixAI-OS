@@ -1,4 +1,4 @@
-# UnixAI OS ⇄ MorpheusAI — birbiriyle konuşan iki ajan (MCP)
+# Trinity ⇄ MorpheusAI — birbiriyle konuşan iki ajan (MCP)
 
 İki ayrı uygulama, iki ayrı ajan. Her biri kendi kurumsal GPT gateway'iyle çalışır, **kendi araçlarını MCP sunucusu olarak barındırır**
 (`/mcp`) ve **başka MCP sunucularına istemci olarak bağlanır**. Böylece birbirleriyle — ve başka alanlardaki ajanlarla — konuşurlar.
@@ -7,7 +7,7 @@
           başka alanlar (ekip ajanları, Claude Code/Desktop, portal)            başka MCP sunucuları
                        │ Bearer token                                                  ▲
                        ▼                                                               │
-   ┌──────────── UnixAI OS ────────────┐      MCP (Streamable HTTP)      ┌──────────── MorpheusAI ────────────┐
+   ┌──────────── Trinity ────────────┐      MCP (Streamable HTTP)      ┌──────────── MorpheusAI ────────────┐
    │ ajan: GPT + araçlar               │ ─── morpheusai__morpheus_* ───▶ │ /mcp  morpheus_create_remediation  │
    │ /mcp  unixai_get_server_findings  │                                 │       morpheus_launch_remediation  │
    │       unixai_run_diagnostic       │ ◀── unixai__unixai_* ────────── │ ajan: GPT + araçlar                │
@@ -20,11 +20,11 @@
 
 ## Kurulum (her iki uygulamada da arayüzden: **Ajan & MCP**)
 
-1. **UnixAI OS → Ajan & MCP → Token üret**: ad `morpheusai` → token'ı kopyalayın.
+1. **Trinity → Ajan & MCP → Token üret**: ad `morpheusai` → token'ı kopyalayın.
 2. **MorpheusAI → Ajan & MCP → Bağlantı ekle**: ad `unixai`, adres `http://unixai.kurum.local:3000/mcp`, 1. adımdaki token → *Kaydet ve test et*.
 3. **MorpheusAI → Ajan & MCP → Token üret**: ad `unixai` → token'ı kopyalayın.
-4. **UnixAI OS → Ajan & MCP → Bağlantı ekle**: ad `morpheusai`, adres `http://morpheus.kurum.local:3000/mcp`, 3. adımdaki token.
-5. **UnixAI Ajanı** ekranında konuşun: *"En kritik sunucunun P1 bulgusunu canlı tanıyla doğrula ve MorpheusAI ajanından düzeltme playbook'u iste"*.
+4. **Trinity → Ajan & MCP → Bağlantı ekle**: ad `morpheusai`, adres `http://morpheus.kurum.local:3000/mcp`, 3. adımdaki token.
+5. **Trinity Ajanı** ekranında konuşun: *"En kritik sunucunun P1 bulgusunu canlı tanıyla doğrula ve MorpheusAI ajanından düzeltme playbook'u iste"*.
    Cevabın altındaki **araç adımları** hangi araçların çağrıldığını ve hangi ajanla konuşulduğunu gösterir; iki tarafta da **Ajan konuşmaları** listesine düşer.
 
 Başka bir ekibin ajanını bağlamak için aynı şekilde *Bağlantı ekle* (onların `/mcp` adresi + token'ı); onların sizi kullanması için
@@ -32,7 +32,7 @@ Başka bir ekibin ajanını bağlamak için aynı şekilde *Bağlantı ekle* (on
 
 ## Barındırılan MCP sunucusu
 
-| | UnixAI OS | MorpheusAI |
+| | Trinity | MorpheusAI |
 |---|---|---|
 | Uç nokta | `POST /mcp` | `POST /mcp` |
 | Taşıma | Streamable HTTP, JSON yanıt, durumsuz (2025-06-18 / 2025-03-26 / 2024-11-05) | aynı |
@@ -54,11 +54,11 @@ Yalnızca stdio destekleyen istemciler için aktarıcılar: `mcp/unixai_mcp.py` 
   geçer ve bunu öğrenir. Gateway'iniz `tools` desteklemiyorsa *JSON protokolü* seçebilirsiniz.
 - **Hop sınırı** (varsayılan 1): bir ajan diğerine `agent_ask` ile sorabilir; gelen istekte karşı ajana geri soru soramaz (yalnızca veri araçlarını
   kullanır) — sonsuz döngü önlenir.
-- **Canlı tanı**: UnixAI ajanı sunucuda yalnızca katalogdaki **salt-okunur** komutları (LVM, servis logları, portlar, SELinux...) doğrulanmış
+- **Canlı tanı**: Trinity ajanı sunucuda yalnızca katalogdaki **salt-okunur** komutları (LVM, servis logları, portlar, SELinux...) doğrulanmış
   parametrelerle çalıştırabilir; serbest komut çalıştıramaz.
-- **Onay**: MorpheusAI'nin yazdığı playbook, AAP'de (check dahil) çalışmadan önce **bir kişinin onayını** bekler — istek UnixAI ajanından
-  gelse bile. Ajan "bu playbook'u yazdım" deyip YAML'ı gösterir; onay MorpheusAI → Düzeltmeler ekranından veya UnixAI ekranından
-  (sohbet kartı, MorpheusAI sekmesi, dashboard bandı) verilir. UnixAI onayı kişinin adıyla (`X-Approved-By`) aktarır; bunun için
+- **Onay**: MorpheusAI'nin yazdığı playbook, AAP'de (check dahil) çalışmadan önce **bir kişinin onayını** bekler — istek Trinity ajanından
+  gelse bile. Ajan "bu playbook'u yazdım" deyip YAML'ı gösterir; onay MorpheusAI → Düzeltmeler ekranından veya Trinity ekranından
+  (sohbet kartı, MorpheusAI sekmesi, dashboard bandı) verilir. Trinity onayı kişinin adıyla (`X-Approved-By`) aktarır; bunun için
   MorpheusAI token'ı **"Onay aktarabilir"** işaretli olmalı. MCP'de onay aracı yoktur; ajanlar onay veremez ve sunucuya uygulayamaz.
   Onaydan sonra check otomatik başlar; check başarılıysa kişi **Sunucuya uygula** der.
 
@@ -68,5 +68,5 @@ Yalnızca stdio destekleyen istemciler için aktarıcılar: `mcp/unixai_mcp.py` 
 MORPHEUS_DIR=../MorpheusAI python3 scripts/agents_e2e.py
 ```
 
-Sahte GPT ve sahte AAP ile iki gerçek uygulamayı ayağa kaldırır; UnixAI ajanının MCP üzerinden MorpheusAI ajanıyla konuştuğunu,
-MorpheusAI ajanının UnixAI'nin veri aracını geri çağırıp playbook ürettiğini ve yalnızca check başlattığını doğrular.
+Sahte GPT ve sahte AAP ile iki gerçek uygulamayı ayağa kaldırır; Trinity ajanının MCP üzerinden MorpheusAI ajanıyla konuştuğunu,
+MorpheusAI ajanının Trinity'nin veri aracını geri çağırıp playbook ürettiğini ve yalnızca check başlattığını doğrular.

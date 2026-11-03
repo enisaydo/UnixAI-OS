@@ -1,4 +1,4 @@
-# UnixAI OS - container imajı (Podman / Docker) — yalnızca Python standart kütüphanesi
+# Trinity - container imajı (Podman / Docker) — yalnızca Python standart kütüphanesi
 FROM docker.io/library/python:3.12-alpine
 
 # Agentless toplama için OpenSSH istemcisi; saat dilimi verisi

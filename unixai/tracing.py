@@ -8,7 +8,7 @@
     LANGFUSE_ENVIRONMENT=production
 
   Ne gönderilir: ajan çalışması (agent) → araç adımları (tool / agent) → GPT çağrıları (generation: model, token);
-  sunucu analizi (chain). UnixAI MorpheusAI'ye soru sorduğunda iz bağlamı MCP 'context.trace' ile aktarılır:
+  sunucu analizi (chain). Trinity MorpheusAI'ye soru sorduğunda iz bağlamı MCP 'context.trace' ile aktarılır:
   iki ajanın konuşması Langfuse'ta tek iz olarak görünür.
   Gönderim arka planda toplu yapılır; Langfuse erişilemezse izler düşer, uygulama etkilenmez. Token/parola maskelenir.
 """

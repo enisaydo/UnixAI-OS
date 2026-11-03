@@ -1,4 +1,4 @@
-/* UnixAI OS - uygulama */
+/* Trinity - uygulama */
 const State = {
   health: null,
   overview: null,
@@ -72,7 +72,7 @@ const pctCell = (v, warn, crit) =>
 /* ================================================================== */
 /*  Router                                                             */
 /* ================================================================== */
-const ROUTES = ["dashboard", "server", "runs", "collected", "ask", "a2a", "agent", "servers", "usage", "logs", "audit", "oplogs", "settings"];
+const ROUTES = ["dashboard", "server", "runs", "collected", "ask", "cve", "a2a", "agent", "servers", "usage", "logs", "audit", "oplogs", "settings"];
 
 function route() {
   const [name, ...rest] = location.hash.replace(/^#\/?/, "").split("/");
@@ -81,7 +81,8 @@ function route() {
   $$(".view").forEach((v) => v.classList.toggle("active", v.dataset.view === r));
   $$(".sidebar a").forEach((a) => a.classList.toggle("active", a.dataset.route === (r === "server" ? "dashboard" : r)));
   $("#sidebar").classList.remove("open");
-  if (r === "dashboard") { loadOverview(); refreshApprovals(); }
+  if (r === "dashboard") { loadOverview(); refreshApprovals(); loadSecCard(); }
+  if (r === "cve") loadCvePage(arg);
   if (r === "server" && rest[0]) {
     if (rest[1]) State.sd.tab = rest[1];
     loadServer(decodeURIComponent(rest[0]));
@@ -134,7 +135,7 @@ function renderOverview() {
   if (!o.servers.length) {
     $("#hero").innerHTML = `<div class="card onboard">
       <div class="empty-ill">${icon("servers")}</div>
-      <h2>UnixAI OS'a hoş geldiniz</h2>
+      <h2>Trinity'ye hoş geldiniz</h2>
       <p class="muted">RHEL sunucularınızdan agentless olarak log ve metrik toplayıp GenAI ile analiz etmek için üç adım:</p>
       <ol class="steps">
         <li><a href="#/settings">${icon("sparkles")}<b>GenAI bağlantısı</b><span>Token servisi ve GPT adreslerini girin</span></a></li>
@@ -675,7 +676,7 @@ async function showRawSection(name, run, sec) {
 }
 
 /* ================================================================== */
-/*  UnixAI'ye sor                                                      */
+/*  Trinity'ye sor                                                      */
 /* ================================================================== */
 const SUGGESTIONS = [
   "Bugün ilk neye bakmalıyım?",
@@ -726,7 +727,7 @@ async function sendChat(text) {
 }
 
 function resetChat() {
-  State.chat = [{ role: "assistant", intro: true, content: "Merhaba, ben **UnixAI ajanı**. Sunucu verisine araçlarımla bakar, gerekirse canlı salt-okunur tanı çalıştırır ve bağlı ajanlarla (ör. MorpheusAI) konuşurum. Ne yapalım?" }];
+  State.chat = [{ role: "assistant", intro: true, content: "Merhaba, ben **Trinity ajanı**. Sunucu verisine araçlarımla bakar, gerekirse canlı salt-okunur tanı çalıştırır ve bağlı ajanlarla (ör. MorpheusAI) konuşurum. Ne yapalım?" }];
   renderChat();
 }
 
@@ -1117,6 +1118,7 @@ const headerValues = (root) => [...root.querySelectorAll(".hdr-row")].map((r) =>
 async function loadSettingsPage() {
   loadLimits();
   loadMorpheus();
+  loadSatellite();
   loadPrompts();
   try {
     const [c, s] = await Promise.all([Api.connection(), Api.settings()]);
@@ -1317,7 +1319,7 @@ function toggleTheme() {
 
 const PAGES = [
   ["dashboard", "Genel Bakış", "dashboard"], ["runs", "Toplama & Analiz", "refresh"], ["collected", "Gelen Loglar", "logs"],
-  ["ask", "UnixAI Ajanı", "chat"], ["a2a", "MorpheusAI (ajanlar arası)", "bolt"], ["agent", "Ajan & MCP", "sparkles"], ["servers", "Sunucular", "servers"], ["usage", "Token Kullanımı", "chart"],
+  ["ask", "Trinity Ajanı", "chat"], ["a2a", "MorpheusAI (ajanlar arası)", "bolt"], ["agent", "Ajan & MCP", "sparkles"], ["servers", "Sunucular", "servers"], ["usage", "Token Kullanımı", "chart"],
   ["logs", "AI Logları", "file"], ["audit", "İşlem Kayıtları", "list"], ["oplogs", "Log Dosyaları", "file"], ["settings", "Ayarlar", "sliders"],
 ];
 const Palette = { items: [], sel: 0 };
@@ -1428,7 +1430,7 @@ async function sendRemediation(i, btn) {
 
 
 /* ================================================================== */
-/*  Playbook onayı: MorpheusAI yazar, bir kişi UnixAI'den onaylar        */
+/*  Playbook onayı: MorpheusAI yazar, bir kişi Trinity'den onaylar        */
 /*  (onay MorpheusAI'ye X-Approved-By ile aktarılır; ajanlar onay veremez) */
 /* ================================================================== */
 State.remLive = {};
@@ -1636,6 +1638,241 @@ async function saveMorpheus() {
 }
 
 /* ================================================================== */
+/*  Red Hat Satellite · CVE takibi                                     */
+/* ================================================================== */
+const CVE_STATUS = {
+  affected_ready: ["Etkileniyor · yama hazır", "red"],
+  affected_cv: ["Etkileniyor · yama content view'de yok", "red"],
+  affected_ssh: ["Etkileniyor (SSH ile doğrulandı)", "red"],
+  unreachable: ["Doğrulanamadı", "gold"],
+  stale: ["Satellite verisi eski", "gold"],
+  unregistered: ["Satellite'ta kayıtlı değil", "gold"],
+  clean_ssh: ["Etkilenmiyor (SSH ile doğrulandı)", "green"],
+  clean: ["Etkilenmiyor / yamalı", "green"],
+};
+const CVE_GROUP = { affected: ["affected_ready", "affected_cv", "affected_ssh"], unknown: ["unreachable", "stale", "unregistered"], clean: ["clean", "clean_ssh"] };
+const SEV_CLS = { Critical: "red", Important: "gold", Moderate: "blue" };
+const sevTag = (s) => (s ? `<span class="label ${SEV_CLS[s] || ""}">${esc(s)}</span>` : "");
+const cveTag = (s) => `<span class="label ${CVE_STATUS[s]?.[1] || ""}">${esc(CVE_STATUS[s]?.[0] || s)}</span>`;
+const satConfigured = () => Boolean(State.health?.satellite?.configured);
+const satTime = (t) => String(t || "").replace(" UTC", "Z").replace(" ", "T");
+State.cve = { report: null, filter: "issues" };
+
+async function loadSecCard(refresh = false) {
+  try { renderSecCard(await Api.satSummary(refresh)); }
+  catch (e) { $("#secCard").innerHTML = `<div class="card">${errorView(e)}</div>`; }
+}
+
+function renderSecCard(s) {
+  const el = $("#secCard");
+  const head = (right = "") => `<div class="card-head"><h3>${icon("shield")}Güvenlik · Red Hat Satellite</h3><div class="toolbar">${right}</div></div>`;
+  if (!s.configured) {
+    el.innerHTML = `<div class="card">${head()}<p class="muted">Satellite bağlantısı kurulmadı. CVE takibi ve filo güvenlik durumu için
+      <a href="#/settings" data-goto="setSatellite">Ayarlar → Satellite</a> bölümünden adresi (ör. <code>https://gbsatp04</code>) ve salt-okunur kullanıcıyı girin.</p></div>`;
+    return;
+  }
+  const tools = `<span class="muted sm">${esc(s.satellite)}${s.fetchedAt ? ` · ${esc(ago(s.fetchedAt))}` : ""}</span>
+    <button class="btn sm" data-sec-refresh>${icon("refresh", "i i-xs")}Yenile</button><a class="btn sm" href="#/cve">CVE Takibi</a>`;
+  if (s.error) { el.innerHTML = `<div class="card">${head(tools)}<div class="alert danger"><b>Satellite'a ulaşılamadı:</b> ${esc(s.error)}</div></div>`; return; }
+  const kpi = (label, val, sub, cls = "") => `<div class="kpi ${cls}"><div class="k-label">${label}</div><div class="k-val">${val}</div><div class="k-sub">${sub}</div></div>`;
+  el.innerHTML = `<div class="card">${head(tools)}
+    <div class="sec-top">
+      <div class="sec-kpis">
+        ${kpi(`${icon("servers", "i i-xs")}Satellite host'ları`, fmtNum(s.hosts), "kayıtlı ve görünür")}
+        ${kpi(`${icon("shield", "i i-xs")}Güvenlik yaması bekleyen`, fmtNum(s.withSecurityErrata), "en az bir güvenlik errata'sı uygulanabilir", s.withSecurityErrata ? "kpi-p1" : "")}
+        ${kpi(`${icon("clock", "i i-xs")}Check-in'i eski`, fmtNum(s.stale), "verisine güvenilmeyen host")}
+        ${kpi(`${icon("alert", "i i-xs")}Satellite'ta olmayan`, fmtNum(s.unregistered.length), `Trinity'deki ${s.inventory} sunucudan`)}
+      </div>
+      <form class="cve-quick" id="secCveForm"><label class="muted sm">Güvenlik ekibinden gelen CVE</label>
+        <div class="row-inline"><input class="input mono" name="cve" placeholder="CVE-2024-6387" required spellcheck="false" />
+        <button class="btn primary" type="submit">${icon("search", "i i-xs")}Etki analizi</button></div></form>
+    </div>
+    <div class="sub-h">Filoyu etkileyen son Critical / Important güvenlik errata'ları</div>
+    ${s.recent.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Errata</th><th>Önem</th><th>CVE</th><th class="num">Etkilenen host</th><th class="num">Yama hazır</th><th>Yayın</th><th></th></tr></thead><tbody>
+      ${s.recent.map((e) => `<tr><td class="mono">${esc(e.errataId)}<div class="muted sm">${esc(e.title || "")}</div></td><td>${sevTag(e.severity)}</td>
+        <td class="mono sm">${e.cves.map(esc).join("<br>") || "—"}</td><td class="num"><b>${fmtNum(e.hosts)}</b></td><td class="num">${fmtNum(e.installable)}</td>
+        <td class="sm">${esc((e.issued || "").slice(0, 10))}</td>
+        <td>${e.cves[0] ? `<a class="btn sm" href="#/cve/${encodeURIComponent(e.cves[0])}">Etki analizi</a>` : ""}</td></tr>`).join("")}
+    </tbody></table></div>` : `<p class="muted">Filodaki host'ları etkileyen Critical / Important güvenlik errata'sı yok.</p>`}
+    ${s.reports.length ? `<div class="sub-h">Son CVE analizleri</div><ul class="cve-recent">${s.reports.map((r) => `<li><a href="#/cve/r/${r.id}" class="mono">${esc(r.cve)}</a>
+      ${sevTag(r.severity)} <span class="${r.affected ? "status-err" : "status-ok"}">${r.noErrata ? "Satellite'ta errata yok" : `${r.affected} etkilenen sunucu`}</span>
+      <span class="muted sm">· ${esc(ago(r.createdAt))}${r.by ? ` · ${esc(r.by)}` : ""}</span></li>`).join("")}</ul>` : ""}
+  </div>`;
+}
+
+async function loadCvePage(arg) {
+  $("#cveHint").innerHTML = satConfigured() || !State.health ? "" :
+    `<div class="alert warn">Satellite bağlantısı kurulmadı: <a href="#/settings" data-goto="setSatellite">Ayarlar → Satellite</a>.</div>`;
+  loadCveHistory();
+  if (arg?.startsWith("r/")) {
+    try { State.cve.report = await Api.cveReport(arg.slice(2)); $("#cveForm").elements.cve.value = State.cve.report.cve; renderCveReport(); }
+    catch (e) { $("#cveResult").innerHTML = `<div class="card">${errorView(e)}</div>`; }
+  } else if (arg) {
+    $("#cveForm").elements.cve.value = arg;
+    runCve(arg, $("#cveForm").elements.verify.checked);
+  } else if (State.cve.report) renderCveReport();
+}
+
+async function loadCveHistory() {
+  try {
+    const { items } = await Api.cveReports();
+    $("#cveHistory").innerHTML = items.length ? `<thead><tr><th>CVE</th><th>Önem</th><th>Errata</th><th class="num">Etkilenen</th><th class="num">Belirsiz</th><th>Zaman</th><th>Kim</th></tr></thead><tbody>
+      ${items.map((r) => `<tr><td><a class="mono" href="#/cve/r/${r.id}">${esc(r.cve)}</a></td><td>${sevTag(r.severity)}</td><td class="mono sm">${r.errata.map(esc).join(", ") || "—"}</td>
+        <td class="num ${r.affected ? "status-err" : ""}"><b>${r.affected}</b></td>
+        <td class="num">${CVE_GROUP.unknown.reduce((n, k) => n + (r.counts?.[k] || 0), 0)}</td>
+        <td class="sm">${esc(fmtTime(r.createdAt))}</td><td class="sm">${esc(r.by || "")}</td></tr>`).join("")}</tbody>`
+      : `<tbody><tr><td class="muted">Henüz analiz yok.</td></tr></tbody>`;
+  } catch (e) { $("#cveHistory").innerHTML = `<tbody><tr><td>${errorView(e)}</td></tr></tbody>`; }
+}
+
+async function runCve(cve, verify) {
+  cve = String(cve || "").trim().toUpperCase();
+  $("#cveResult").innerHTML = `<div class="card">${loadingView(`${cve}: Satellite'ta errata ve host'lar sorgulanıyor${verify ? ", gerekirse SSH ile doğrulanıyor" : ""}…`)}</div>`;
+  try {
+    State.cve.report = await Api.cveAnalyze(cve, verify);
+    State.cve.filter = "issues";
+    history.replaceState(null, "", `#/cve/r/${State.cve.report.id}`);
+    renderCveReport();
+    loadCveHistory();
+  } catch (e) { $("#cveResult").innerHTML = `<div class="card">${errorView(e)}</div>`; }
+}
+
+/** Rapordan aksiyon maddeleri: ne yapılmalı, kaç sunucu, hangi komut */
+function cveActions(r) {
+  const by = (k) => r.hosts.filter((h) => h.status === k);
+  const out = [];
+  const ready = [...by("affected_ready"), ...by("affected_ssh")];
+  if (ready.length) {
+    const adv = [...new Set(ready.flatMap((h) => (h.installable?.length ? h.installable : h.verify?.advisories || [])))];
+    const reboot = r.errata.some((e) => e.rebootSuggested && adv.includes(e.errataId));
+    out.push({ p: "P1", title: `${ready.length} sunucuya güvenlik güncellemesini uygulayın`,
+      detail: `MorpheusAI'ye gönderin: playbook üretilir, onayınızdan sonra AAP'de önce check, sonra uygulama.${reboot ? " Red Hat yeniden başlatma öneriyor." : ""}`,
+      cmd: adv.map((a) => `dnf -y update --advisory=${a}`).join("\n") });
+  }
+  const cv = by("affected_cv");
+  if (cv.length) {
+    const groups = [...new Set(cv.map((h) => `${h.contentView || "?"} / ${h.lifecycle || "?"}`))];
+    out.push({ p: "P1", title: `${cv.length} sunucuda yama content view'de yok`,
+      detail: `Satellite'ta ilgili content view'i yayınlayıp (publish) ortamına taşıyın (promote), sonra yeniden analiz edin. Content view / ortam: ${groups.join(", ")}` });
+  }
+  if (by("unregistered").length) out.push({ p: "P2", title: `${by("unregistered").length} sunucu Satellite'ta kayıtlı değil`,
+    detail: `SSH doğrulaması ${r.verified ? "yapıldı" : "kapalıydı"}. Kalıcı çözüm: sunucuları Satellite'a kaydedin (Hosts → Register Host).` });
+  if (by("stale").length) out.push({ p: "P2", title: `${by("stale").length} sunucunun Satellite verisi eski`,
+    detail: "Check-in yapmayan host'larda rhsmcertd / subscription-manager durumunu kontrol edin; bilgi güncellenene kadar sonuç kesin değildir." });
+  if (by("unreachable").length) out.push({ p: "P2", title: `${by("unreachable").length} sunucu doğrulanamadı`, detail: "SSH bağlantısı kurulamadı; Sunucular ekranında SSH testini çalıştırın." });
+  return out;
+}
+
+function renderCveReport() {
+  const r = State.cve.report;
+  if (!r) return;
+  const c = r.counts, sum = (g) => CVE_GROUP[g].reduce((n, k) => n + (c[k] || 0), 0);
+  const groups = { issues: [...CVE_GROUP.affected, ...CVE_GROUP.unknown], affected: CVE_GROUP.affected, unknown: CVE_GROUP.unknown, clean: CVE_GROUP.clean, all: Object.keys(CVE_STATUS) };
+  const rows = r.hosts.filter((h) => groups[State.cve.filter].includes(h.status));
+  const acts = cveActions(r);
+  const canSend = (h) => ["affected_ready", "affected_ssh"].includes(h.status) && morConfigured();
+  const seg = (k, label, n) => `<button data-cve-filter="${k}" class="${State.cve.filter === k ? "on" : ""}">${label} <b>${n}</b></button>`;
+  $("#cveResult").innerHTML = `<div class="card">
+    <div class="card-head"><h3>${icon("shield")}<span class="mono">${esc(r.cve)}</span> ${sevTag(r.severity)}</h3>
+      <div class="toolbar"><span class="muted sm">${esc(r.satellite)} · ${esc(fmtTime(r.createdAt))}${r.by ? ` · ${esc(r.by)}` : ""} · ${fmtDur(r.durationMs)}</span>
+      <a class="btn sm" href="https://access.redhat.com/security/cve/${encodeURIComponent(r.cve)}" target="_blank" rel="noopener">Red Hat CVE sayfası</a>
+      <button class="btn sm" data-cve-rerun>${icon("refresh", "i i-xs")}Yeniden analiz et</button></div></div>
+    ${r.noErrata ? `<div class="alert warn"><b>Satellite'ta bu CVE için errata yok.</b> Olası nedenler: Red Hat henüz yama yayınlamadı, CVE RHEL paketlerini etkilemiyor
+      veya ilgili depolar Satellite'ta senkronize edilmedi. Red Hat CVE sayfasındaki ürün durumunu ("Affected", "Will not fix", "Fix deferred") kontrol edin.</div>` : ""}
+    <div class="sec-kpis">
+      <div class="kpi ${sum("affected") ? "kpi-p1" : ""}"><div class="k-label">Etkilenen</div><div class="k-val">${sum("affected")}</div><div class="k-sub">yama hazır ${c.affected_ready + c.affected_ssh} · content view'de yok ${c.affected_cv}</div></div>
+      <div class="kpi"><div class="k-label">Belirsiz</div><div class="k-val">${sum("unknown")}</div><div class="k-sub">kayıtsız ${c.unregistered} · eski ${c.stale} · ulaşılamadı ${c.unreachable}</div></div>
+      <div class="kpi"><div class="k-label">Etkilenmeyen</div><div class="k-val">${sum("clean")}</div><div class="k-sub">yamalı veya etkilenmiyor</div></div>
+      <div class="kpi"><div class="k-label">Errata</div><div class="k-val sm mono">${r.errata.map((e) => esc(e.errataId)).join("<br>") || "—"}</div><div class="k-sub">${r.verified ? `${r.verified} sunucu SSH ile doğrulandı` : "SSH doğrulaması yok"}</div></div>
+    </div>
+    ${r.errata.length ? `<div class="sub-h">Errata</div><div class="table-wrap"><table class="table"><thead><tr><th>Errata</th><th>Önem</th><th>Paketler</th><th>Yeniden başlatma</th><th>Yayın</th></tr></thead><tbody>
+      ${r.errata.map((e) => `<tr><td class="mono">${esc(e.errataId)}<div class="muted sm">${esc(e.title || "")}</div></td><td>${sevTag(e.severity)}</td><td class="mono sm">${e.packages.map(esc).join(", ") || "—"}</td>
+        <td>${e.rebootSuggested ? `<span class="label gold">önerilir</span>` : "—"}</td><td class="sm">${esc((e.issued || "").slice(0, 10))}</td></tr>`).join("")}</tbody></table></div>` : ""}
+    ${acts.length ? `<div class="sub-h">Aksiyon maddeleri</div><ol class="todo">${acts.map((a) => `<li><div><div class="t-title">${prioTag(a.p)}${esc(a.title)}</div><div class="muted sm">${esc(a.detail)}</div>
+      ${a.cmd ? `<pre class="cmd">${esc(a.cmd)}</pre>` : ""}</div></li>`).join("")}</ol>` : (r.noErrata ? "" : `<p class="status-ok">${icon("check", "i i-xs")} Bu CVE'den etkilenen sunucu yok.</p>`)}
+    <div class="card-head"><div class="sub-h">Sunucular</div>
+      <div class="seg">${seg("issues", "Sorunlu", sum("affected") + sum("unknown"))}${seg("affected", "Etkilenen", sum("affected"))}${seg("unknown", "Belirsiz", sum("unknown"))}${seg("clean", "Etkilenmeyen", sum("clean"))}${seg("all", "Tümü", r.hosts.length)}</div></div>
+    ${rows.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Sunucu</th><th>Durum</th><th>Errata</th><th>OS</th><th>Content view / ortam</th><th>Son check-in</th><th></th></tr></thead><tbody>
+      ${rows.map((h) => `<tr><td><b>${h.inventoryName ? `<a href="#/server/${encodeURIComponent(h.inventoryName)}">${esc(h.inventoryName)}</a>` : esc(h.name)}</b>${h.inventoryName && h.satellite && h.name !== h.inventoryName ? `<div class="muted sm">${esc(h.name)}</div>` : ""}</td>
+        <td>${cveTag(h.status)}${h.verify?.error ? `<div class="muted sm">${esc(h.verify.error)}</div>` : ""}</td>
+        <td class="mono sm">${[...new Set([...(h.errata || []), ...(h.verify?.advisories || [])])].map(esc).join("<br>") || "—"}</td>
+        <td class="sm">${esc(h.os || "—")}</td><td class="sm">${h.contentView ? `${esc(h.contentView)} / ${esc(h.lifecycle || "—")}` : "—"}</td>
+        <td class="sm">${h.lastCheckin ? esc(ago(satTime(h.lastCheckin))) : "—"}</td>
+        <td>${h.remediation ? `<a class="label blue" href="${esc(h.remediation.url || "#/a2a")}" target="_blank" rel="noopener">MorpheusAI'de · ${esc(h.remediation.status || "gönderildi")}</a>`
+          : canSend(h) ? `<button class="btn sm" data-cve-send="${esc(h.name)}">${icon("bolt", "i i-xs")}MorpheusAI'ye gönder</button>` : ""}</td></tr>`).join("")}
+    </tbody></table></div>` : `<p class="muted">Bu filtrede sunucu yok.</p>`}
+  </div>`;
+}
+
+async function loadSatellite() {
+  try {
+    const s = await Api.satellite();
+    fillForm($("#satForm"), s);
+    $("#flowSat").classList.toggle("ok", s.configured);
+    $("#flowSatHost").textContent = s.url ? new URL(s.url).host : "tanımlı değil";
+    $("#satInfo").textContent = s.updatedAt ? `Son kayıt: ${fmtTime(s.updatedAt)}${s.updatedBy ? ` · ${s.updatedBy}` : ""}` : "";
+  } catch (e) { $("#satResult").innerHTML = errorView(e); }
+}
+
+async function saveSatellite() {
+  const s = await Api.saveSatellite(readForm($("#satForm")));
+  fillForm($("#satForm"), s);
+  checkHealth();
+  loadSatellite();
+  return s;
+}
+
+function bindCve() {
+  $("#cveForm").onsubmit = (e) => { e.preventDefault(); runCve(e.target.elements.cve.value, e.target.elements.verify.checked); };
+  $("#cveResult").onclick = async (e) => {
+    const f = e.target.closest("[data-cve-filter]");
+    if (f) { State.cve.filter = f.dataset.cveFilter; return renderCveReport(); }
+    if (e.target.closest("[data-cve-rerun]")) return runCve(State.cve.report.cve, $("#cveForm").elements.verify.checked);
+    const b = e.target.closest("[data-cve-send]");
+    if (!b) return;
+    b.disabled = true;
+    try {
+      const rec = await Api.cveSend(State.cve.report.id, b.dataset.cveSend);
+      toast(`MorpheusAI playbook'u üretti (uyum ${rec.score ?? "—"}) — onayınızı bekliyor`);
+      State.cve.report = await Api.cveReport(State.cve.report.id);
+      renderCveReport();
+      refreshApprovals();
+    } catch (err) { toast(err.message, true); b.disabled = false; }
+  };
+  $("#secCard").onclick = (e) => { if (e.target.closest("[data-sec-refresh]")) loadSecCard(true); };
+  $("#secCard").onsubmit = (e) => {
+    if (e.target.id !== "secCveForm") return;
+    e.preventDefault();
+    location.hash = `#/cve/${encodeURIComponent(e.target.elements.cve.value.trim().toUpperCase())}`;
+  };
+  document.addEventListener("click", (e) => {
+    const g = e.target.closest("[data-goto]");
+    if (!g) return;
+    e.preventDefault();
+    location.hash = "#/settings";
+    setTimeout(() => document.getElementById(g.dataset.goto)?.scrollIntoView({ behavior: "smooth", block: "start" }), 150);
+  });
+  $("#satForm").onsubmit = async (e) => {
+    e.preventDefault();
+    try { await saveSatellite(); toast("Satellite entegrasyonu kaydedildi"); $("#satResult").innerHTML = ""; }
+    catch (err) { $("#satResult").innerHTML = errorView(err); }
+  };
+  $("#satTest").onclick = async (e) => {
+    const b = e.currentTarget, out = $("#satResult");
+    b.disabled = true;
+    try {
+      await saveSatellite();
+      out.innerHTML = loadingView("Satellite'a bağlanılıyor…");
+      const r = await Api.testSatellite();
+      out.innerHTML = r.ok
+        ? `<div class="alert info"><b class="status-ok">✓ Satellite bağlantısı başarılı</b> · sürüm ${esc(r.version || "—")} · ${fmtNum(r.hosts)} host · organizasyonlar: ${r.organizations.map(esc).join(", ") || "—"}</div>`
+        : `<div class="alert danger"><b>✕ Bağlanılamadı:</b> ${esc(r.error)}</div>`;
+    } catch (err) { out.innerHTML = errorView(err); }
+    finally { b.disabled = false; }
+  };
+}
+
+/* ================================================================== */
 /*  Ajan & MCP                                                         */
 /* ================================================================== */
 const MODE_LABEL = { native: "function calling", json: "JSON protokolü", auto: "otomatik" };
@@ -1672,7 +1909,7 @@ function renderAgentMap(conns, srv) {
       ${tokens.map((t) => `<div class="amap-node in">${icon("key", "i i-xs")} ${esc(t.name)}${t.readonly ? ` <span class="label">salt-okunur</span>` : ""}<small>${t.lastUsedAt ? `son: ${esc(ago(t.lastUsedAt))}` : "henüz bağlanmadı"}</small></div>`).join("") || `<div class="amap-node ghost">Henüz token yok</div>`}
     </div>
     <div class="amap-arrow">→ /mcp →</div>
-    <div class="amap-col center"><div class="amap-core">${icon("sparkles")}<b>UnixAI ajanı</b><small>${esc(MODE_LABEL[State.health?.agent?.detected || State.health?.agent?.mode] || "")}</small></div></div>
+    <div class="amap-col center"><div class="amap-core">${icon("sparkles")}<b>Trinity ajanı</b><small>${esc(MODE_LABEL[State.health?.agent?.detected || State.health?.agent?.mode] || "")}</small></div></div>
     <div class="amap-arrow">→ MCP →</div>
     <div class="amap-col"><div class="amap-h">Bağlı sunucular</div>
       ${conns.map((c) => `<div class="amap-node out ${c.enabled ? "" : "off"}">${icon("bolt", "i i-xs")} ${esc(c.name)}${c.lastTest ? ` <span class="${c.lastTest.ok ? "status-ok" : "status-err"}">${c.lastTest.ok ? `✓ ${c.lastTest.tools} araç` : "✕"}</span>` : ""}<small>${esc(c.url)}</small></div>`).join("") || `<div class="amap-node ghost">Henüz bağlantı yok</div>`}
@@ -1875,13 +2112,13 @@ function bindAudit() {
   $("#auditTable").onclick = (e) => { const tr = e.target.closest("[data-audit]"); if (tr) showAudit(+tr.dataset.audit); };
 }
 
-const SELF_AGENT = "UnixAI ajanı", SELF_SHORT = "UnixAI", PEER_HINT = "MorpheusAI";
-const A2A_EMPTY = "Henüz MorpheusAI ajanıyla konuşma yok. UnixAI Ajanı ekranında örneğin: <i>'rhel-db01 P1 bulgusu için MorpheusAI'den playbook iste'</i>";
+const SELF_AGENT = "Trinity ajanı", SELF_SHORT = "Trinity", PEER_HINT = "MorpheusAI";
+const A2A_EMPTY = "Henüz MorpheusAI ajanıyla konuşma yok. Trinity Ajanı ekranında örneğin: <i>'rhel-db01 P1 bulgusu için MorpheusAI'den playbook iste'</i>";
 /* ================================================================== */
 /*  Ajanlar arası konuşmalar (yalnızca iki ajanın kendi aralarındaki mesajlar) */
 /* ================================================================== */
 State.a2a = { peer: "", server: "", sel: null };
-const peerTitle = (p) => (/morpheus/i.test(p) ? "MorpheusAI ajanı" : /unixai/i.test(p) ? "UnixAI ajanı" : `${p} ajanı`);
+const peerTitle = (p) => (/morpheus/i.test(p) ? "MorpheusAI ajanı" : /unixai/i.test(p) ? "Trinity ajanı" : `${p} ajanı`);
 
 function remCard(x) {
   const st = typeof remTag === "function" ? remTag(x.status) : `<span class="label">${esc(x.status || "")}</span>`;
@@ -1985,7 +2222,7 @@ function bindA2A() {
 /* ================================================================== */
 State.live = { es: null, paused: false, rows: new Map(), lastId: 0, refreshT: null };
 const A2A_LIVE_HINT = "Soldan bir konuşma seçin, film olarak oynasın.<br>Seçmezseniz <b>Konuşma Evreni canlı modda</b>: karakterler o anki REST/MCP isteklerine göre hareket eder.";
-const LIVE_SELF = SELF_SHORT === "Morpheus" ? "MorpheusAI" : "UnixAI";
+const LIVE_SELF = SELF_SHORT === "Morpheus" ? "MorpheusAI" : "Trinity";
 const liveTime = (iso) => { const d = new Date(iso); return isNaN(d) ? "" : d.toLocaleTimeString("tr-TR", { hour12: false }); };
 const liveDur = (ms) => (ms == null ? "" : ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} sn`);
 
@@ -2271,6 +2508,7 @@ function bindEvents() {
   }));
   bindPalette();
   bindAgentPage();
+  bindCve();
   bindAudit();
   bindOplogs();
   bindA2A();

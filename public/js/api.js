@@ -1,5 +1,5 @@
 /*
- * UnixAI OS - API katmanı
+ * Trinity - API katmanı
  * Tüm backend çağrıları buradan geçer.
  */
 const Settings = (() => {
@@ -84,6 +84,14 @@ const Api = (() => {
     remediation: (id) => request(`/remediations/${enc(id)}`),
     remDecide: (id, action, body = {}) => request(`/remediations/${enc(id)}/${action}`, { method: "POST", body }),
     approvals: () => request("/approvals"),
+    satellite: () => request("/integrations/satellite"),
+    saveSatellite: (c) => request("/integrations/satellite", { method: "POST", body: c }),
+    testSatellite: () => request("/integrations/satellite/test", { method: "POST", body: {} }),
+    satSummary: (refresh = false) => request(`/satellite/summary${refresh ? "?refresh=1" : ""}`),
+    cveAnalyze: (cve, verify = true) => request("/cve/analyze", { method: "POST", body: { cve, verify } }),
+    cveReports: () => request("/cve/reports"),
+    cveReport: (id) => request(`/cve/reports/${enc(id)}`),
+    cveSend: (id, host) => request(`/cve/reports/${enc(id)}/send`, { method: "POST", body: { host } }),
     connection: () => request("/connection"),
     saveConnection: (c) => request("/connection", { method: "POST", body: c }),
     testConnection: (step) => request("/connection/test", { method: "POST", body: { step } }),
@@ -123,6 +131,9 @@ GET  /api/collected              → { sections[], servers[]: { name, sectionLin
 POST /api/chat                   ← { messages: {role, content}[], context?: { server } | { fleet: true } } → { reply }
 GET|POST /api/integrations/morpheus   ← { url, token, targetField: name|host, autoSend, autoSendPriority }  (MorpheusAI köprüsü)
 POST /api/remediations           ← { server, actionIndex }  → MorpheusAI'de standartlara uygun düzeltme playbook'u
+GET|POST /api/integrations/satellite  ← { url, user, password, organization, staleDays, insecureTls }  (Red Hat Satellite)
+POST /api/cve/analyze            ← { cve, verify? }  → etki raporu: errata (RHSA), host'lar ve durumları
+GET  /api/cve/reports[/:id]      POST /api/cve/reports/:id/send ← { host }  → MorpheusAI playbook'u   GET /api/satellite/summary
 GET  /api/remediations[?server=] → gönderilen düzeltmeler ve MorpheusAI'deki güncel durum
      Servisler arası / MCP: Authorization: Bearer <UNIXAI_API_TOKEN>
 POST /mcp                        ← MCP (Streamable HTTP, JSON-RPC: initialize, tools/list, tools/call)  Authorization: Bearer <MCP token>

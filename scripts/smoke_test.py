@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""UnixAI OS smoke testleri (bağımlılıksız):  python3 scripts/smoke_test.py
+"""Trinity smoke testleri (bağımlılıksız):  python3 scripts/smoke_test.py
 
 - sahte TMS token servisi + sahte chat/completions (GPT) gateway'i
 - sahte ssh istemcisi (scripts/fake_ssh.py)
@@ -102,7 +102,7 @@ class Gateway(BaseHTTPRequestHandler):
             elif "Bağlantı testi" in last:
                 content = "OK"
             else:
-                content = "Merhaba, ben **UnixAI** (sahte gateway)."
+                content = "Merhaba, ben **Trinity** (sahte gateway)."
             return self.reply(200, {"model": "gpt-5.5-test", "choices": [{"message": {"role": "assistant", "content": content}, "finish_reason": "stop"}],
                                     "usage": {"prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150}})
         self.reply(404, {})
@@ -221,7 +221,7 @@ def main():
 
         print("\nArayüz ve giriş")
         r = urllib.request.urlopen(base + "/")
-        check(r.status == 200 and "UnixAI" in r.read().decode(), "index.html sunuluyor")
+        check(r.status == 200 and "Trinity" in r.read().decode(), "index.html sunuluyor")
         check("script-src 'self'" in (r.headers.get("content-security-policy") or ""), "güvenlik header'ları (CSP) var")
         check(api("/overview")[0] == 401, "oturumsuz istek 401")
         check(api("/auth/login", {"username": "admin", "password": "yanlis"})[0] == 401, "hatalı parola reddedildi")
@@ -291,7 +291,7 @@ def main():
         col = api("/collected")[1]
         check(next(s for s in col["servers"] if s["name"] == "srv1")["sectionLines"]["df"] > 1, "Gelen Loglar matrisi satır sayıları")
         an = next(c for c in seen["chat"] if "<sunucu_verisi>" in c["body"]["messages"][-1]["content"])
-        check(an["body"]["messages"][0]["role"] == "system" and "UnixAI" in an["body"]["messages"][0]["content"], "analizde system mesajı gönderildi")
+        check(an["body"]["messages"][0]["role"] == "system" and "Trinity" in an["body"]["messages"][0]["content"], "analizde system mesajı gönderildi")
         logs = api("/logs")[1]
         check(any(l["kind"] == "tms-token" for l in logs) and any(l["kind"] == "server-analysis" and (l.get("meta") or {}).get("server") == "srv1" for l in logs),
               "AI Logları: token + analiz istekleri")
@@ -300,7 +300,7 @@ def main():
 
         print("\nSohbet, kullanım ve limitler")
         ch = api("/chat", {"messages": [{"role": "user", "content": "srv1 durumu?"}], "context": {"server": "srv1"}, "agent": False})[1]
-        check("UnixAI" in ch["reply"], "sohbet cevabı geldi")
+        check("Trinity" in ch["reply"], "sohbet cevabı geldi")
         check("Bağlam: srv1" in seen["chat"][-1]["body"]["messages"][0]["content"], "sohbete sunucu bağlamı eklendi")
         u = api("/usage/today")[1]
         check(u["total"] >= 450 and u["requests"] >= 3, f"token kullanımı kaydedildi ({u['total']})")
@@ -331,7 +331,7 @@ def main():
         r = wait_run(api("/runs", {"mode": "collect", "servers": ["srv1"]})[1]["id"])
         check(len(morpheus_seen["created"]) == 1, "otomatik gönderim: aynı sunucu + aksiyon 24 saat içinde tekrar gönderilmedi")
 
-        print("\nMCP (UnixAI OS)")
+        print("\nMCP (Trinity)")
         menv = {**os.environ, "UNIXAI_URL": base, "UNIXAI_API_TOKEN": "unixai-mcp-token-1234567890", "PYTHONIOENCODING": "utf-8"}
         mp, rpc, notify = mcp_client(menv)
         try:
@@ -345,7 +345,7 @@ def main():
             fd = json.loads(rpc("tools/call", {"name": "unixai_get_server_findings", "arguments": {"server": "srv1"}})["result"]["content"][0]["text"])
             check(fd["action_items"][0]["index"] == 0 and fd["action_items"][0]["commands"], "MCP sunucu bulguları (index'li aksiyonlar)")
             sm = rpc("tools/call", {"name": "unixai_send_to_morpheus", "arguments": {"server": "srv1"}})["result"]["structuredContent"]
-            check(len(sm["sent"]) == 1 and sm["sent"][0]["id"] == "rem-1", "MCP: P1 aksiyonlar UnixAI köprüsüyle MorpheusAI'ye gönderildi")
+            check(len(sm["sent"]) == 1 and sm["sent"][0]["id"] == "rem-1", "MCP: P1 aksiyonlar Trinity köprüsüyle MorpheusAI'ye gönderildi")
             bad = rpc("tools/call", {"name": "unixai_get_server_findings", "arguments": {"server": "yok"}})["result"]
             check(bad.get("isError"), "MCP: hata isError olarak döndü")
         finally:
@@ -404,7 +404,7 @@ def main():
         check(mcp_post({"jsonrpc": "2.0", "id": 5, "method": "ping"}, full, origin="https://portal.kurum.local")[0] == 200, "izinli Origin kabul edildi")
         ask = mcp_post({"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "unixai_agent_ask", "arguments": {
             "question": "srv1 nasıl? AJAN_TEST", "context": {"conversation_id": "x", "hop": 1, "from": "morpheusai"}}}}, full)[1]["result"]
-        check(not ask.get("isError") and "Skor 22" in ask["structuredContent"]["answer"], "başka ajan /mcp üzerinden UnixAI ajanıyla konuştu (agent_ask)")
+        check(not ask.get("isError") and "Skor 22" in ask["structuredContent"]["answer"], "başka ajan /mcp üzerinden Trinity ajanıyla konuştu (agent_ask)")
         convs = api("/agent/conversations")[1]
         check(any(c["origin"] == "morpheusai" and c["hop"] == 1 for c in convs), "gelen ajan konuşması kaynak ve hop bilgisiyle kaydedildi")
 
