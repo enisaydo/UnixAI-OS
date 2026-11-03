@@ -1652,7 +1652,7 @@ const CVE_STATUS = {
 };
 const CVE_GROUP = { affected: ["affected_ready", "affected_cv", "affected_ssh"], unknown: ["unreachable", "stale", "unregistered"], clean: ["clean", "clean_ssh"] };
 const SEV_CLS = { Critical: "red", Important: "gold", Moderate: "blue" };
-const sevTag = (s) => (s ? `<span class="label ${SEV_CLS[s] || ""}">${esc(s)}</span>` : "");
+const errataSevTag = (s) => (s ? `<span class="label ${SEV_CLS[s] || ""}">${esc(s)}</span>` : "");
 const cveTag = (s) => `<span class="label ${CVE_STATUS[s]?.[1] || ""}">${esc(CVE_STATUS[s]?.[0] || s)}</span>`;
 const satConfigured = () => Boolean(State.health?.satellite?.configured);
 const satTime = (t) => String(t || "").replace(" UTC", "Z").replace(" ", "T");
@@ -1689,13 +1689,13 @@ function renderSecCard(s) {
     </div>
     <div class="sub-h">Filoyu etkileyen son Critical / Important güvenlik errata'ları</div>
     ${s.recent.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Errata</th><th>Önem</th><th>CVE</th><th class="num">Etkilenen host</th><th class="num">Yama hazır</th><th>Yayın</th><th></th></tr></thead><tbody>
-      ${s.recent.map((e) => `<tr><td class="mono">${esc(e.errataId)}<div class="muted sm">${esc(e.title || "")}</div></td><td>${sevTag(e.severity)}</td>
+      ${s.recent.map((e) => `<tr><td class="mono">${esc(e.errataId)}<div class="muted sm">${esc(e.title || "")}</div></td><td>${errataSevTag(e.severity)}</td>
         <td class="mono sm">${e.cves.map(esc).join("<br>") || "—"}</td><td class="num"><b>${fmtNum(e.hosts)}</b></td><td class="num">${fmtNum(e.installable)}</td>
         <td class="sm">${esc((e.issued || "").slice(0, 10))}</td>
         <td>${e.cves[0] ? `<a class="btn sm" href="#/cve/${encodeURIComponent(e.cves[0])}">Etki analizi</a>` : ""}</td></tr>`).join("")}
     </tbody></table></div>` : `<p class="muted">Filodaki host'ları etkileyen Critical / Important güvenlik errata'sı yok.</p>`}
     ${s.reports.length ? `<div class="sub-h">Son CVE analizleri</div><ul class="cve-recent">${s.reports.map((r) => `<li><a href="#/cve/r/${r.id}" class="mono">${esc(r.cve)}</a>
-      ${sevTag(r.severity)} <span class="${r.affected ? "status-err" : "status-ok"}">${r.noErrata ? "Satellite'ta errata yok" : `${r.affected} etkilenen sunucu`}</span>
+      ${errataSevTag(r.severity)} <span class="${r.affected ? "status-err" : "status-ok"}">${r.noErrata ? "Satellite'ta errata yok" : `${r.affected} etkilenen sunucu`}</span>
       <span class="muted sm">· ${esc(ago(r.createdAt))}${r.by ? ` · ${esc(r.by)}` : ""}</span></li>`).join("")}</ul>` : ""}
   </div>`;
 }
@@ -1717,7 +1717,7 @@ async function loadCveHistory() {
   try {
     const { items } = await Api.cveReports();
     $("#cveHistory").innerHTML = items.length ? `<thead><tr><th>CVE</th><th>Önem</th><th>Errata</th><th class="num">Etkilenen</th><th class="num">Belirsiz</th><th>Zaman</th><th>Kim</th></tr></thead><tbody>
-      ${items.map((r) => `<tr><td><a class="mono" href="#/cve/r/${r.id}">${esc(r.cve)}</a></td><td>${sevTag(r.severity)}</td><td class="mono sm">${r.errata.map(esc).join(", ") || "—"}</td>
+      ${items.map((r) => `<tr><td><a class="mono" href="#/cve/r/${r.id}">${esc(r.cve)}</a></td><td>${errataSevTag(r.severity)}</td><td class="mono sm">${r.errata.map(esc).join(", ") || "—"}</td>
         <td class="num ${r.affected ? "status-err" : ""}"><b>${r.affected}</b></td>
         <td class="num">${CVE_GROUP.unknown.reduce((n, k) => n + (r.counts?.[k] || 0), 0)}</td>
         <td class="sm">${esc(fmtTime(r.createdAt))}</td><td class="sm">${esc(r.by || "")}</td></tr>`).join("")}</tbody>`
@@ -1773,7 +1773,7 @@ function renderCveReport() {
   const canSend = (h) => ["affected_ready", "affected_ssh"].includes(h.status) && morConfigured();
   const seg = (k, label, n) => `<button data-cve-filter="${k}" class="${State.cve.filter === k ? "on" : ""}">${label} <b>${n}</b></button>`;
   $("#cveResult").innerHTML = `<div class="card">
-    <div class="card-head"><h3>${icon("shield")}<span class="mono">${esc(r.cve)}</span> ${sevTag(r.severity)}</h3>
+    <div class="card-head"><h3>${icon("shield")}<span class="mono">${esc(r.cve)}</span> ${errataSevTag(r.severity)}</h3>
       <div class="toolbar"><span class="muted sm">${esc(r.satellite)} · ${esc(fmtTime(r.createdAt))}${r.by ? ` · ${esc(r.by)}` : ""} · ${fmtDur(r.durationMs)}</span>
       <a class="btn sm" href="https://access.redhat.com/security/cve/${encodeURIComponent(r.cve)}" target="_blank" rel="noopener">Red Hat CVE sayfası</a>
       <button class="btn sm" data-cve-rerun>${icon("refresh", "i i-xs")}Yeniden analiz et</button></div></div>
@@ -1786,7 +1786,7 @@ function renderCveReport() {
       <div class="kpi"><div class="k-label">Errata</div><div class="k-val sm mono">${r.errata.map((e) => esc(e.errataId)).join("<br>") || "—"}</div><div class="k-sub">${r.verified ? `${r.verified} sunucu SSH ile doğrulandı` : "SSH doğrulaması yok"}</div></div>
     </div>
     ${r.errata.length ? `<div class="sub-h">Errata</div><div class="table-wrap"><table class="table"><thead><tr><th>Errata</th><th>Önem</th><th>Paketler</th><th>Yeniden başlatma</th><th>Yayın</th></tr></thead><tbody>
-      ${r.errata.map((e) => `<tr><td class="mono">${esc(e.errataId)}<div class="muted sm">${esc(e.title || "")}</div></td><td>${sevTag(e.severity)}</td><td class="mono sm">${e.packages.map(esc).join(", ") || "—"}</td>
+      ${r.errata.map((e) => `<tr><td class="mono">${esc(e.errataId)}<div class="muted sm">${esc(e.title || "")}</div></td><td>${errataSevTag(e.severity)}</td><td class="mono sm">${e.packages.map(esc).join(", ") || "—"}</td>
         <td>${e.rebootSuggested ? `<span class="label gold">önerilir</span>` : "—"}</td><td class="sm">${esc((e.issued || "").slice(0, 10))}</td></tr>`).join("")}</tbody></table></div>` : ""}
     ${acts.length ? `<div class="sub-h">Aksiyon maddeleri</div><ol class="todo">${acts.map((a) => `<li><div><div class="t-title">${prioTag(a.p)}${esc(a.title)}</div><div class="muted sm">${esc(a.detail)}</div>
       ${a.cmd ? `<pre class="cmd">${esc(a.cmd)}</pre>` : ""}</div></li>`).join("")}</ol>` : (r.noErrata ? "" : `<p class="status-ok">${icon("check", "i i-xs")} Bu CVE'den etkilenen sunucu yok.</p>`)}
