@@ -92,6 +92,11 @@ const Api = (() => {
     cveReports: () => request("/cve/reports"),
     cveReport: (id) => request(`/cve/reports/${enc(id)}`),
     cveSend: (id, host) => request(`/cve/reports/${enc(id)}/send`, { method: "POST", body: { host } }),
+    vulns: () => request("/vulns"),
+    vulnScan: (verify = true) => request("/vulns/scan", { method: "POST", body: { verify } }),
+    vulnBag: (key) => request(`/vulns/${enc(key)}`),
+    vulnBagScan: (key, verify = true) => request(`/vulns/${enc(key)}/scan`, { method: "POST", body: { verify } }),
+    vulnBagSend: (key, severities) => request(`/vulns/${enc(key)}/send`, { method: "POST", body: { severities } }),
     connection: () => request("/connection"),
     saveConnection: (c) => request("/connection", { method: "POST", body: c }),
     testConnection: (step) => request("/connection/test", { method: "POST", body: { step } }),
@@ -134,6 +139,8 @@ POST /api/remediations           ← { server, actionIndex }  → MorpheusAI'de 
 GET|POST /api/integrations/satellite  ← { url, user, password, organization, staleDays, insecureTls }  (Red Hat Satellite)
 POST /api/cve/analyze            ← { cve, verify? }  → etki raporu: errata (RHSA), host'lar ve durumları
 GET  /api/cve/reports[/:id]      POST /api/cve/reports/:id/send ← { host }  → MorpheusAI playbook'u   GET /api/satellite/summary
+GET  /api/vulns                  → sunucu bazında zafiyet torbaları (özet, en yaygın CVE'ler)   POST /api/vulns/scan ← { verify? }
+GET  /api/vulns/:sunucu          POST /api/vulns/:sunucu/scan   POST /api/vulns/:sunucu/send ← { severities[] }  → MorpheusAI playbook'u
 GET  /api/remediations[?server=] → gönderilen düzeltmeler ve MorpheusAI'deki güncel durum
      Servisler arası / MCP: Authorization: Bearer <UNIXAI_API_TOKEN>
 POST /mcp                        ← MCP (Streamable HTTP, JSON-RPC: initialize, tools/list, tools/call)  Authorization: Bearer <MCP token>

@@ -40,6 +40,7 @@
       <a href="#/collected" data-route="collected"><svg class="i" data-icon="logs"></svg>Gelen Loglar</a>
       <a href="#/ask" data-route="ask"><svg class="i" data-icon="chat"></svg>Trinity Ajanı</a>
       <a href="#/cve" data-route="cve"><svg class="i" data-icon="shield"></svg>CVE Takibi</a>
+      <a href="#/vulns" data-route="vulns"><svg class="i" data-icon="alert"></svg>Zafiyet Torbası</a>
       <div class="nav-group">Yönetim</div>
       <a href="#/a2a" data-route="a2a"><svg class="i" data-icon="bolt"></svg>MorpheusAI<span class="badge" id="apprBadge" hidden></span></a>
       <a href="#/agent" data-route="agent"><svg class="i" data-icon="sparkles"></svg>Ajan &amp; MCP</a>
@@ -378,6 +379,19 @@
           </div>
           <div class="table-wrap"><table class="table" id="auditTable"></table></div>
         </div>
+      </section>
+
+      <!-- ---------- ZAFİYET TORBASI ---------- -->
+      <section class="view" data-view="vulns" id="vbView">
+        <div class="page-head">
+          <div><h1>Zafiyet Torbası</h1><p>Her sunucuda açık olan güvenlik errata'ları (RHSA) ve CVE'ler: önem derecesi, yamanın hazır olup olmadığı, kaç gündür açık olduğu ve SLA aşımı. Kaynak Red Hat Satellite; Satellite'ta olmayan veya verisi eski sunucular SSH ile (dnf updateinfo) okunur. Yalnızca okuma yapılır.</p></div>
+          <div class="toolbar">
+            <span class="muted sm" id="vbInfo"></span>
+            <label class="check sm"><input type="checkbox" id="vbVerify" checked /> SSH ile tamamla</label>
+            <button class="btn primary" id="vbScan"><svg class="i" data-icon="refresh"></svg>Tüm filoyu tara</button>
+          </div>
+        </div>
+        <div id="vbBody"></div>
       </section>
 
       <!-- ---------- CVE TAKİBİ ---------- -->

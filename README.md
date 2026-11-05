@@ -19,7 +19,7 @@ Merkez sunucu ──ssh (root, anahtar, salt-okunur komutlar)──▶ RHEL hede
 ```bash
 python3 server.py              # → http://localhost:3000
 python3 scripts/smoke_test.py  # sahte TMS/GPT gateway + sahte ssh ile uçtan uca testler
-python3 scripts/satellite_test.py  # sahte Satellite (HTTPS) + sahte MorpheusAI ile CVE etki analizi testi
+python3 scripts/satellite_test.py  # sahte Satellite (HTTPS) + sahte MorpheusAI ile CVE etki analizi ve zafiyet torbası testi
 ```
 
 Python 3.9+ yeterli (RHEL 9 varsayılan `python3`; RHEL 8'de `python3.11` veya `python39` paketi). GenAI bağlı değilken **demo modunda** kural motoru çalışır;
@@ -99,6 +99,24 @@ API çağrıları `logs/satellite/`. Ajan ve MCP istemcileri `unixai_cve_impact`
 Satellite'ta errata'sı olmayan CVE'ler (Red Hat henüz yama yayınlamadıysa) "errata yok" olarak raporlanır; ürün durumu için
 Red Hat CVE sayfasına bakılır.
 
+### Zafiyet torbası (sunucu bazında)
+
+**Zafiyet Torbası** ekranı (ve sunucu detayındaki *Zafiyetler* sekmesi) her sunucuda açık olan güvenlik errata'larını ve
+CVE'leri tutar. *Tüm filoyu tara* (veya tek sunucuda *Yeniden tara*):
+
+- Satellite'taki host için `GET /katello/api/errata?host_id=…&errata_restrict_applicable=true` (+ `errata_restrict_installable`
+  ile yamanın content view'de hazır olup olmadığı), `search=type = security`.
+- Satellite'ta olmayan veya check-in'i eski Trinity sunucusu için SSH ile `dnf updateinfo list --security [--with-cve]`
+  (*SSH ile tamamla* işaretliyse).
+- Her errata için önem derecesi, CVE'ler, yayın tarihi, açık gün ve **SLA aşımı** (yayından itibaren Critical 15, Important 30,
+  Moderate 90, Low 180 gün; `unixai/satellite.py` → `SLA_DAYS`), yeniden başlatma önerisi, torbaya ilk giriş tarihi.
+- Yeniden taramada artık görünmeyen errata **Kapananlar** listesine düşer (kapanma zamanıyla).
+- Filo görünümü: sunucu başına C·I·M·L sayıları, SLA aşan, yaması hazır; filoda en yaygın CVE'ler (→ *Etki analizi*).
+- *MorpheusAI'ye gönder*: yaması hazır Critical+Important (veya tümü) errata'lar tek bulgu olarak gider
+  (`dnf -y update --advisory=… --advisory=…`) → playbook → onay → AAP. CSV dışa aktarma güvenlik ekibi için.
+
+Torbalar `data/vuln_bags.json`'da. Ajan ve MCP istemcileri `unixai_vuln_bag` aracıyla okur (server boşsa filo özeti).
+
 ## Ajan ve MCP (birbiriyle konuşan iki ajan)
 
 Trinity bir **ajandır**: kurumsal GPT + araçlarla çok adımlı çalışır. Araçlarını `POST /mcp` (Streamable HTTP) üzerinden başka alanlara **barındırır** (arayüzden üretilen token'lar, salt-okunur seçeneği, izinli Origin listesi) ve başka MCP sunucularına **istemci olarak bağlanır** (ör. MorpheusAI, diğer ekiplerin ajanları). İki uygulama `*_agent_ask` araçlarıyla birbirinin ajanına doğal dilde soru sorar; hop sınırı döngüyü önler. Gerçek uygulama her zaman insan onayı gerektirir.
@@ -128,6 +146,7 @@ needs-restarting, top prosesler, zombie. Root değilse ayrıcalıklı komutlar `
 | **Toplama & Analiz** | Topla ve analiz et, sadece yeniden analiz et, demo veri; çalıştırma geçmişi ve canlı ilerleme |
 | **Gelen Loglar** | Sunucu × log bölümü matrisi (satır sayısı); hücreden ham çıktı |
 | **CVE Takibi** | Satellite'tan CVE etki analizi: etkilenen / belirsiz / etkilenmeyen sunucular, aksiyon maddeleri, MorpheusAI'ye gönderim |
+| **Zafiyet Torbası** | Sunucu bazında açık güvenlik errata'ları / CVE'ler, SLA aşımı, kapananlar, CSV, MorpheusAI'ye toplu gönderim |
 | **Trinity Ajanı** | Araç kullanan ajan: sunucu verisi, canlı salt-okunur tanı, MorpheusAI ajanıyla konuşma; adımlar cevabın altında |
 | **Ajan & MCP** | Barındırılan /mcp, erişim token'ları, izinli alanlar, bağlı MCP sunucuları, ajan ayarları ve konuşmaları |
 | **Sunucular** | Envanter, SSH testi, public key ve hedef kurulum komutları |

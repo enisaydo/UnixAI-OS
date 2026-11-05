@@ -43,7 +43,18 @@ HOSTS = [host(1, "web01.kurum.local", "10.0.0.1", fresh), host(2, "db02.kurum.lo
          host(3, "app03.kurum.local", "10.0.0.3", fresh, 0), host(4, "old04.kurum.local", "10.0.0.4", old, 0)]
 ERRATUM = {"id": "e-uuid-1", "errata_id": "RHSA-2024:4312", "title": "Important: openssh security update", "severity": "Important",
            "issued": "2024-07-03", "cves": [{"cve_id": "CVE-2024-6387"}], "hosts_applicable_count": 2, "hosts_available_count": 1}
-seen = {"sat_auth": set(), "morpheus": []}
+ERR_CRIT = {"id": "e-uuid-2", "errata_id": "RHSA-2020:0001", "title": "Critical: kernel security update", "severity": "Critical",
+            "issued": "2020-01-02", "reboot_suggested": True, "cves": [{"cve_id": "CVE-2020-0001"}, {"cve_id": "CVE-2020-0002"}]}
+seen = {"sat_auth": set(), "morpheus": [], "fixed": False}
+
+
+def host_errata(hid, installable):
+    """Sahte host errata'sı: web01 → openssh (yama hazır) + kernel (content view'de yok), db02 → openssh (content view'de yok)"""
+    if hid == "1":
+        return ([] if installable else [ERR_CRIT]) + ([] if seen["fixed"] else [ERRATUM])
+    if hid == "2":
+        return [] if installable else [ERRATUM]
+    return []
 
 
 class Sat(BaseHTTPRequestHandler):
@@ -74,6 +85,8 @@ class Sat(BaseHTTPRequestHandler):
         if u.path == "/katello/api/organizations":
             return self.reply(200, self.page([{"id": 1, "name": "Kurum", "label": "kurum"}], q))
         if u.path == "/katello/api/errata":
+            if q.get("host_id"):
+                return self.reply(200, self.page(host_errata(q["host_id"][0], q.get("errata_restrict_installable") == ["true"]), q))
             if "cve = CVE-2024-6387" in search:
                 return self.reply(200, self.page([ERRATUM], q))
             if "type = security" in search:
@@ -134,7 +147,8 @@ env = {**os.environ, "UNIXAI_DATA_DIR": str(data), "LOG_DIR": str(tmp / "logs"),
        "ADMIN_PASSWORD": "", "LDAP_SERVER": "", "UNIXAI_SSH_BIN": sys.executable,
        "UNIXAI_SSH_PREFIX": json.dumps([str(HERE / "fake_ssh_cve.py")]), "PIXEL_OFFICE": "false",
        "MORPHEUS_URL": f"http://127.0.0.1:{mor.server_address[1]}", "MORPHEUS_API_TOKEN": "x" * 24, "PYTHONIOENCODING": "utf-8"}
-srv = subprocess.Popen([sys.executable, str(ROOT / "server.py")], cwd=str(ROOT), env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+srv_out = open(tmp / "server.out", "wb")  # PIPE dolunca sunucunun print'i bloklanır; dosyaya yaz
+srv = subprocess.Popen([sys.executable, str(ROOT / "server.py")], cwd=str(ROOT), env=env, stdout=srv_out, stderr=subprocess.STDOUT)
 
 
 def api(method, path, body=None):
@@ -214,6 +228,39 @@ try:
     check(st == 200 and sm["hosts"] == 4 and sm["stale"] == 1 and sm["withSecurityErrata"] == 2, f"host 4, eski 1, güvenlik yaması bekleyen 2 ({sm.get('hosts')}, {sm.get('stale')}, {sm.get('withSecurityErrata')})")
     check(sorted(sm["unregistered"]) == ["bad7", "vuln9"] and sm["recent"][0]["errataId"] == "RHSA-2024:4312" and len(sm["reports"]) == 2, "kayıtsız sunucular, son errata, son analizler")
 
+    print("Zafiyet torbası")
+    st, vb = api("GET", "/vulns")
+    check(st == 200 and vb["lastScan"] is None and vb["items"] == [], "tarama öncesi torba boş")
+    st, vb = api("POST", "/vulns/scan", {})
+    check(st == 200 and vb["totals"]["hosts"] == 6, f"6 sunucu tarandı (4 envanter + 2 yalnızca Satellite) {vb.get('totals', vb.get('error'))}")
+    it = {h["key"]: h for h in vb.get("items", [])}
+    check(it["web01"]["source"] == "satellite" and it["web01"]["summary"]["counts"]["Critical"] == 1 and it["web01"]["summary"]["installable"] == 1,
+          "web01: Satellite, 1 Critical, 1 yaması hazır")
+    check(it["web01"]["summary"]["overdue"] == 2 and it["web01"]["summary"]["cves"] == 3, "web01: 2 SLA aşan (2020 kernel + 2024 openssh), 3 CVE")
+    check(it["db02.kurum.local"]["summary"]["errata"] == 1 and not it["db02.kurum.local"]["inventoryName"], "db02 yalnızca Satellite'ta, 1 errata")
+    check(it["vuln9"]["source"] == "ssh" and it["vuln9"]["summary"]["errata"] == 1 and it["vuln9"]["summary"]["cves"] == 1, f"vuln9: SSH ile 1 errata / 1 CVE {it['vuln9'].get('summary')}")
+    check(it["old04"]["source"] == "ssh" and it["old04"]["summary"]["errata"] == 0, "old04: check-in eski → SSH, açık yok")
+    check(it["bad7"]["error"] and "SSH" in it["bad7"]["error"], "bad7: taranamadı, hata gösterilir")
+    check(list(it)[0] == "web01", "sıralama: Critical'i olan önce")
+    check(vb["topCves"][0]["severity"] == "Critical" and next(x for x in vb["topCves"] if x["id"] == "CVE-2024-6387")["hosts"] == 3, "en yaygın: önce Critical; CVE-2024-6387 3 sunucuda")
+    st, b = api("GET", "/vulns/web01")
+    crit = next(e for e in b["errata"] if e["errataId"] == "RHSA-2020:0001")
+    check(st == 200 and crit["overdue"] and crit["age"] > 1000 and not crit["installable"] and crit["rebootSuggested"], "web01 torbası: kernel errata SLA aşımı, yaması yok, reboot")
+    check(b["errata"][0]["errataId"] == "RHSA-2020:0001", "torba önem derecesine göre sıralı")
+    check(api("GET", "/vulns/yok-boyle")[0] == 404, "bilinmeyen sunucu 404")
+    st, e = api("POST", "/vulns/db02.kurum.local/send", {"severities": ["Critical", "Important"]})
+    check(st == 400 and "content view" in e.get("error", ""), "yaması olmayan torba gönderilmez")
+    st, rec = api("POST", "/vulns/web01/send", {"severities": ["Critical", "Important"]})
+    f = seen["morpheus"][-1]["finding"] if seen["morpheus"] else {}
+    check(st == 201 and f.get("commands") == ["dnf -y update --advisory=RHSA-2024:4312"], f"web01 gönderildi, yalnızca yaması hazır olan: {f.get('commands')}")
+    check(seen["morpheus"][-1].get("source") == "trinity (zafiyet torbası)" and f.get("priority") == "P1", "kaynak ve öncelik")
+    first = crit["firstSeen"]
+    seen["fixed"] = True
+    st, b2 = api("POST", "/vulns/web01/scan", {})
+    check(st == 200 and [e["errataId"] for e in b2["errata"]] == ["RHSA-2020:0001"] and b2["closed"][0]["errataId"] == "RHSA-2024:4312", "yama sonrası: openssh kapananlara düştü")
+    check(b2["errata"][0]["firstSeen"] == first and b2.get("remediation", {}).get("id") == "rem-1", "ilk görülme tarihi ve gönderim kaydı korundu")
+    check(api("GET", "/vulns")[1]["totals"]["hosts"] == 6, "tek sunucu taraması filo listesini bozmaz")
+
     print("Güvenlik")
     logs = "".join(x.read_text(encoding="utf-8") for x in (tmp / "logs").rglob("*.jsonl"))
     check("secret-pat" not in logs and "dHJpbml0eS1ybzpzZWNyZXQtcGF0" not in logs, "parola / Basic değeri loglara yazılmadı")
@@ -225,13 +272,18 @@ try:
     os.environ["UNIXAI_DATA_DIR"] = str(data)
     import unixai.tools as T
     check("unixai_cve_impact" in T.BY_NAME and T.BY_NAME["unixai_cve_impact"]["readonly"], "ajan/MCP aracı unixai_cve_impact (salt-okunur)")
+    check(T.BY_NAME.get("unixai_vuln_bag", {}).get("readonly"), "ajan/MCP aracı unixai_vuln_bag (salt-okunur)")
+    tb = T.vuln_bag({"server": "web01"}, {})
+    check(tb.get("summary", {}).get("errata") == 1 and tb["recentlyClosed"][0]["errataId"] == "RHSA-2024:4312", "araç sunucu torbasını döndürür")
 finally:
     srv.terminate()
     try:
-        out = srv.communicate(timeout=5)[0].decode("utf-8", "replace")
+        srv.wait(timeout=5)
+        srv_out.close()
+        out = (tmp / "server.out").read_bytes().decode("utf-8", "replace")
     except Exception:
         out = ""
-    if fails:
+    if fails or sys.exc_info()[0]:
         print(out[-3000:])
     sat.shutdown()
     mor.shutdown()

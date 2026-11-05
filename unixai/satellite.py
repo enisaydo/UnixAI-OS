@@ -395,3 +395,250 @@ def summary(refresh: bool = False) -> dict:
 def status() -> dict:
     c = get()
     return {"configured": is_configured(), "host": urlsplit(c["url"]).netloc if c["url"] else None}
+
+
+# ------------------------------------------------------------------
+#  Sunucu bazında zafiyet torbası (data/vuln_bags.json)
+#    Satellite: GET /katello/api/errata?host_id=…&errata_restrict_applicable=true  (+ installable)
+#    Satellite'ta olmayan / verisi eski sunucu: dnf updateinfo list --security [--with-cve] (SSH)
+#    Her errata'nın torbaya ilk girdiği an tutulur; kapananlar "closed" geçmişine düşer.
+# ------------------------------------------------------------------
+BAGS = "vuln_bags.json"
+SEVERITIES = ("Critical", "Important", "Moderate", "Low")
+SLA_DAYS = {"Critical": 15, "Important": 30, "Moderate": 90, "Low": 180}  # yayın tarihinden itibaren kapatma süresi
+
+
+def _sev(s):
+    s = str(s or "").split("/")[0].strip().capitalize()
+    return s if s in SEVERITY_RANK else None
+
+
+def _days_since(t):
+    t = str(t or "")
+    if len(t) < 10:
+        return None
+    try:
+        d = parse_iso(t[:10] + "T00:00:00Z")
+    except (TypeError, ValueError):
+        return None
+    if d.tzinfo is None:
+        d = d.replace(tzinfo=timezone.utc)
+    return max(0, int((datetime.now(timezone.utc) - d).total_seconds() // 86400))
+
+
+def _sat_host_errata(host_id) -> list:
+    base = {"host_id": host_id, "search": "type = security"}
+    rows = _all("/katello/api/errata", {**base, "errata_restrict_applicable": "true"}, kind="satellite-host-errata")
+    inst = {e.get("errata_id") for e in _all("/katello/api/errata", {**base, "errata_restrict_installable": "true"}, kind="satellite-host-errata")}
+    return [{"errataId": e.get("errata_id"), "title": e.get("title"), "severity": _sev(e.get("severity")), "issued": (e.get("issued") or "")[:10] or None,
+             "rebootSuggested": bool(e.get("reboot_suggested")), "installable": e.get("errata_id") in inst,
+             "cves": sorted({c.get("cve_id") for c in (e.get("cves") or []) if isinstance(c, dict) and c.get("cve_id")})}
+            for e in rows if ADVISORY_RE.match(str(e.get("errata_id") or ""))]
+
+
+def _ssh_host_errata(server: dict) -> dict:
+    """dnf'in gördüğü (etkin depolardaki) güvenlik güncellemeleri; CVE'ler paket üzerinden errata'ya bağlanır"""
+    from . import collector, settings
+
+    ssh = settings.get()["ssh"]
+    cmd = ("export LC_ALL=C; (dnf -q updateinfo list --security 2>/dev/null || yum -q updateinfo list security 2>/dev/null); echo __sep; "
+           "(dnf -q updateinfo list --security --with-cve 2>/dev/null || yum -q updateinfo list cves 2>/dev/null); echo __rc=$?")
+    r = collector.run_ssh(server, {**ssh, "commandTimeout": min(ssh["commandTimeout"], 180)}, cmd, purpose="Zafiyet torbası: güvenlik güncellemeleri")
+    if r["timedOut"] or (r["code"] == 255 and "__rc=" not in r["stdout"]):
+        return {"error": "zaman aşımı" if r["timedOut"] else collector.explain(r["stderr"], server, ssh)}
+    adv_part, _, cve_part = r["stdout"].partition("__sep")
+    by_adv, by_pkg = {}, {}
+    for line in adv_part.splitlines():
+        p = line.split()
+        if len(p) >= 3 and ADVISORY_RE.match(p[0]):
+            e = by_adv.setdefault(p[0], {"errataId": p[0], "title": None, "severity": _sev(p[1]), "issued": None, "rebootSuggested": False,
+                                         "installable": True, "cves": set(), "packages": set()})
+            e["packages"].add(re.sub(r"-[^-]+-[^-]+$", "", p[2]))
+            by_pkg[p[2]] = p[0]
+    for line in cve_part.splitlines():
+        p = line.split()
+        if len(p) >= 3 and p[0].startswith("CVE-") and by_pkg.get(p[2]) in by_adv:
+            by_adv[by_pkg[p[2]]]["cves"].add(p[0])
+    return {"errata": [{**e, "cves": sorted(e["cves"]), "packages": sorted(e["packages"])[:30]} for e in by_adv.values()]}
+
+
+def _overdue(e) -> bool:
+    age = _days_since(e.get("issued"))
+    return age is not None and e.get("severity") in SLA_DAYS and age > SLA_DAYS[e["severity"]]
+
+
+def _bag_summary(errata: list) -> dict:
+    counts = {s: 0 for s in SEVERITIES}
+    for e in errata:
+        if e["severity"] in counts:
+            counts[e["severity"]] += 1
+    seen = [d for d in (_days_since(e.get("firstSeen")) for e in errata) if d is not None]
+    return {"counts": counts, "errata": len(errata), "cves": len({c for e in errata for c in e["cves"]}),
+            "installable": sum(1 for e in errata if e["installable"]), "overdue": sum(1 for e in errata if _overdue(e)),
+            "rebootSuggested": any(e["rebootSuggested"] for e in errata), "oldestDays": max(seen, default=None)}
+
+
+def _merge(prev, bag: dict) -> dict:
+    """Önceki torbayla birleştirir: ilk görülme tarihi korunur, artık görünmeyen errata 'kapandı' olur"""
+    now = iso_now()
+    prev = prev or {}
+    if bag.get("error"):  # bu taramada veri alınamadı: eski içeriği koru, hatayı göster
+        return {**prev, **bag, "errata": prev.get("errata", []), "closed": prev.get("closed", []),
+                "summary": prev.get("summary") or _bag_summary([]), "source": prev.get("source"), "fetchedAt": prev.get("fetchedAt")}
+    old = {e["errataId"]: e for e in prev.get("errata", [])}
+    cur = {e["errataId"] for e in bag["errata"]}
+    for e in bag["errata"]:
+        e["firstSeen"] = (old.get(e["errataId"]) or {}).get("firstSeen") or now
+    closed = [{"errataId": k, "severity": e.get("severity"), "cves": e.get("cves", []), "firstSeen": e.get("firstSeen"), "closedAt": now}
+              for k, e in old.items() if k not in cur]
+    bag["errata"].sort(key=lambda e: (SEVERITY_RANK.get(e["severity"], 9), e.get("issued") or "", e["errataId"]))
+    bag["closed"] = (closed + prev.get("closed", []))[:100]
+    bag["summary"] = _bag_summary(bag["errata"])
+    if prev.get("remediation"):
+        bag["remediation"] = prev["remediation"]
+    return bag
+
+
+def _collect_bag(key: str, sat, srv, stale_days: int, verify: bool) -> dict:
+    meta = {"key": key, "name": (sat or {}).get("name") or key, "inventoryName": (srv or {}).get("name"), "satellite": bool(sat),
+            "checkedAt": iso_now(), "error": None}
+    if sat:
+        meta.update({k: sat.get(k) for k in ("ip", "os", "contentView", "lifecycle", "lastCheckin")})
+        meta["stale"] = _is_stale(sat, stale_days)
+    if sat and not (meta["stale"] and verify and srv):
+        try:
+            return {**meta, "source": "satellite", "errata": _sat_host_errata(sat["id"]), "fetchedAt": iso_now()}
+        except ApiError as e:
+            if not (verify and srv):
+                return {**meta, "error": str(e)}
+    if srv and verify:
+        r = _ssh_host_errata(srv)
+        if r.get("error"):
+            return {**meta, "error": f"SSH: {r['error']}"}
+        return {**meta, "source": "ssh", "errata": r["errata"], "fetchedAt": iso_now()}
+    return {**meta, "error": "Satellite'ta kayıtlı değil; SSH doğrulaması kapalı"}
+
+
+def _targets() -> list:
+    """[(anahtar, satellite host, envanter sunucusu)] — envanterdekiler kendi adıyla, yalnızca Satellite'ta olanlar host adıyla"""
+    from . import inventory
+
+    sat_hosts = [_host_row(h) for h in _all("/api/hosts", _scope(), kind="satellite-hosts")] if is_configured() else []
+    inv = [s for s in inventory.list_servers() if s.get("enabled", True)]
+    matched = _match(inv, sat_hosts)
+    used = {h["id"] for h in matched.values() if h}
+    return [(s["name"], matched.get(s["name"]), s) for s in inv] + [(h["name"], h, None) for h in sat_hosts if h["id"] not in used]
+
+
+def scan_bags(user=None, verify: bool = True, only=None) -> dict:
+    from . import oplog, settings
+
+    t0 = time.monotonic()
+    targets = _targets()
+    if only:
+        targets = [t for t in targets if only in (t[0], (t[1] or {}).get("name"))]
+        if not targets:
+            raise ApiError("Bu sunucu ne Trinity envanterinde ne de Satellite'ta var", 404)
+    stale_days = get()["staleDays"]
+    workers = max(1, min(settings.get()["ssh"]["concurrency"], 8, len(targets) or 1))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        new = list(pool.map(lambda t: _collect_bag(t[0], t[1], t[2], stale_days, verify), targets))
+    with _lock:
+        store = read_json(BAGS, {}) or {}
+        hosts = store.get("hosts") or {}
+        for b in new:
+            hosts[b["key"]] = _merge(hosts.get(b["key"]), b)
+        if not only:  # artık ne envanterde ne Satellite'ta olanlar torbadan çıkar
+            keep = {b["key"] for b in new}
+            hosts = {k: v for k, v in hosts.items() if k in keep}
+            store.update(lastScan=iso_now(), scanBy=user, scanMs=int((time.monotonic() - t0) * 1000))
+        store["hosts"] = hosts
+        write_json(BAGS, store)
+    oplog.log("satellite", "Zafiyet torbası taraması" + (f": {only}" if only else ""), user=user, hosts=len(new),
+              errors=sum(1 for b in new if b.get("error")), ssh=sum(1 for b in new if b.get("source") == "ssh"),
+              durationMs=int((time.monotonic() - t0) * 1000))
+    return bag(new[0]["key"]) if only else bags()
+
+
+def bags() -> dict:
+    store = read_json(BAGS, {}) or {}
+    hosts = list((store.get("hosts") or {}).values())
+    keep = ("key", "name", "inventoryName", "satellite", "source", "stale", "os", "contentView", "lifecycle", "lastCheckin", "fetchedAt",
+            "checkedAt", "error", "summary", "remediation")
+    rank = lambda h: tuple(-((h.get("summary") or {}).get("counts") or {}).get(s, 0) for s in SEVERITIES) + (h["key"],)
+    items = sorted(({k: h.get(k) for k in keep} for h in hosts), key=rank)
+    cves = {}
+    for h in hosts:
+        for e in h.get("errata", []):
+            for cv in e["cves"] or [e["errataId"]]:
+                x = cves.setdefault(cv, {"id": cv, "severity": e["severity"], "hosts": set(), "errata": set(), "installable": set()})
+                x["hosts"].add(h["key"])
+                x["errata"].add(e["errataId"])
+                if e["installable"]:
+                    x["installable"].add(h["key"])
+                if SEVERITY_RANK.get(e["severity"], 9) < SEVERITY_RANK.get(x["severity"], 9):
+                    x["severity"] = e["severity"]
+    top = sorted(cves.values(), key=lambda x: (SEVERITY_RANK.get(x["severity"], 9), -len(x["hosts"]), x["id"]))[:25]
+    sm = lambda h, k: (h.get("summary") or {}).get(k) or 0
+    return {"lastScan": store.get("lastScan"), "scanBy": store.get("scanBy"), "scanMs": store.get("scanMs"), "items": items,
+            "sla": SLA_DAYS, "configured": is_configured(),
+            "totals": {"hosts": len(hosts), "withVulns": sum(1 for h in hosts if sm(h, "errata")), "errors": sum(1 for h in hosts if h.get("error")),
+                       "counts": {s: sum(((h.get("summary") or {}).get("counts") or {}).get(s, 0) for h in hosts) for s in SEVERITIES},
+                       "overdue": sum(sm(h, "overdue") for h in hosts), "installable": sum(sm(h, "installable") for h in hosts), "cves": len(cves)},
+            "topCves": [{**x, "hosts": len(x["hosts"]), "installable": len(x["installable"]), "errata": sorted(x["errata"])[:5]} for x in top]}
+
+
+def bag(key: str):
+    hosts = (read_json(BAGS, {}) or {}).get("hosts") or {}
+    h = hosts.get(key) or next((b for b in hosts.values() if key in (b.get("name"), b.get("inventoryName"))), None)
+    if h is None:
+        return None
+    for e in h.get("errata", []):
+        e["age"] = _days_since(e.get("issued"))
+        e["overdue"] = _overdue(e)
+    return {**h, "sla": SLA_DAYS}
+
+
+def send_bag(key: str, severities=None, user=None) -> dict:
+    """Torbadaki yaması hazır güvenlik errata'larını (seçilen önem dereceleri) tek bulgu olarak MorpheusAI'ye gönderir"""
+    from . import inventory, morpheus
+
+    b = bag(key)
+    if not b:
+        raise ApiError("Bu sunucu için zafiyet torbası yok; önce tarayın", 404)
+    sev = [s for s in (severities or []) if s in SEVERITIES] or ["Critical", "Important"]
+    pick = [e for e in b.get("errata", []) if e["installable"] and e["severity"] in sev]
+    if not pick:
+        cv = any(not e["installable"] and e["severity"] in sev for e in b.get("errata", []))
+        raise ApiError(f"{'/'.join(sev)} önem derecesinde yaması hazır errata yok"
+                       + ("; yaması content view'de olmayanlar için Satellite'ta publish/promote gerekir" if cv else ""))
+    adv = [e["errataId"] for e in pick]
+    cves = sorted({c for e in pick for c in e["cves"]})
+    reboot = any(e["rebootSuggested"] for e in pick)
+    top = min((e["severity"] for e in pick), key=lambda s: SEVERITY_RANK[s])
+    inv = inventory.get(b.get("inventoryName") or "") or {}
+    name = b.get("inventoryName") or _short(b["name"])
+    src = f"Satellite {urlsplit(get()['url']).netloc}" if b.get("source") == "satellite" else "SSH / dnf updateinfo"
+    finding = {
+        "title": f"{len(adv)} güvenlik güncellemesini uygula ({'/'.join(sev)})",
+        "priority": "P1" if top in ("Critical", "Important") else "P2",
+        "severity": "critical" if top == "Critical" else "high" if top == "Important" else "medium",
+        "category": "security",
+        "evidence": f"Zafiyet torbası ({src}): {', '.join(adv[:40])}" + (f"; CVE: {', '.join(cves[:40])}{' …' if len(cves) > 40 else ''}" if cves else ""),
+        "probable_cause": "Sunucuda yayınlanmış güvenlik güncellemeleri kurulu değil",
+        "rationale": f"{len(cves)} CVE açık; {sum(1 for e in pick if e['overdue'])} errata kapatma süresini (SLA) aştı.",
+        "commands": ["dnf -y update " + " ".join(f"--advisory={a}" for a in adv)] + (["needs-restarting -r || systemctl reboot"] if reboot else []),
+        "verification": "dnf -q updateinfo list --security çıktısında bu errata'lar kalmamalı; Trinity → Zafiyet Torbası'nda sunucuyu yeniden tarayın",
+        "risk": "Paket güncellemesi; servisler yeniden başlayabilir" + ("; Red Hat yeniden başlatma öneriyor" if reboot else ""),
+        "anomalies": [],
+    }
+    server = {"name": name, "target": (b.get("ip") or b["name"]) if morpheus.get()["targetField"] == "host" else name,
+              "host": inv.get("host") or b["name"], "os_release": b.get("os"), "tags": inv.get("tags", [])}
+    rec = morpheus.send_finding(server, finding, user, source="trinity (zafiyet torbası)", context={"advisories": adv, "cves": cves[:200]})
+    with _lock:
+        store = read_json(BAGS, {}) or {}
+        h = (store.get("hosts") or {}).get(b["key"])
+        if h is not None:
+            h["remediation"] = {"id": rec["id"], "status": rec.get("status"), "url": rec.get("url"), "sentAt": iso_now(), "sentBy": user, "advisories": adv}
+            write_json(BAGS, store)
+    return rec

@@ -103,6 +103,20 @@ def cve_impact(a, ctx):
             "hint": "Etkilenen sunucular CVE Takibi ekranından MorpheusAI'ye gönderilebilir (playbook → onay → AAP)."}
 
 
+def vuln_bag(a, ctx):
+    if not a.get("server"):
+        b = satellite.bags()
+        return {**{k: b[k] for k in ("lastScan", "totals", "topCves", "sla")},
+                "hosts": [{k: h.get(k) for k in ("key", "source", "error", "summary")} for h in b["items"]][:200],
+                "hint": "Tek sunucunun ayrıntısı için server verin; tarama Zafiyet Torbası ekranından veya refresh=true ile yapılır."}
+    b = satellite.scan_bags(ctx.get("user"), only=a["server"]) if a.get("refresh") else satellite.bag(a["server"])
+    if not b:
+        return {"error": "Bu sunucu için zafiyet torbası yok; refresh=true ile tarayın"}
+    keep = ("errataId", "severity", "issued", "age", "overdue", "installable", "rebootSuggested", "cves", "firstSeen")
+    return {k: b.get(k) for k in ("key", "name", "source", "fetchedAt", "error", "summary", "sla", "contentView", "lifecycle")} | {
+        "errata": [{k: e.get(k) for k in keep} for e in b.get("errata", [])][:300], "recentlyClosed": b.get("closed", [])[:20]}
+
+
 def list_remediations(a, _ctx):
     return {"items": morpheus.list_records(a.get("server"))}
 
@@ -191,6 +205,12 @@ TOOLS = [
                     "content view'de olmayan / Satellite'ta kayıtlı olmayan sunucular (bunlar SSH ile doğrulanır). Sistemi değiştirmez.",
      "inputSchema": {"type": "object", "required": ["cve"], "properties": {"cve": _s("CVE numarası, ör. CVE-2024-6387"),
                                                                           "verify": {"type": "boolean", "description": "Satellite'ta olmayan / verisi eski sunucuları SSH ile doğrula (varsayılan true)"}}}},
+    {"name": "unixai_vuln_bag", "readonly": True, "handler": vuln_bag,
+     "description": "Sunucu bazında zafiyet torbası: sunucuda açık olan güvenlik errata'ları (RHSA) ve CVE'ler, önem derecesi, yamanın hazır olup "
+                    "olmadığı, yayından bu yana geçen gün ve SLA aşımı, son kapananlar. server verilmezse filo özeti ve en yaygın CVE'ler. "
+                    "Kaynak Red Hat Satellite; Satellite'ta olmayan sunucular SSH ile (dnf updateinfo). Sistemi değiştirmez.",
+     "inputSchema": {"type": "object", "properties": {"server": _s("Sunucu adı (boşsa filo özeti)"),
+                                                      "refresh": {"type": "boolean", "description": "Sunucuyu şimdi yeniden tara (varsayılan: son tarama)"}}}},
     {"name": "unixai_list_remediations", "readonly": True, "handler": list_remediations,
      "description": "MorpheusAI'ye gönderilen düzeltmeler ve güncel durumları.",
      "inputSchema": {"type": "object", "properties": {"server": _s("Sunucu adı filtresi")}}},

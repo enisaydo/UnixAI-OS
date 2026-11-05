@@ -480,6 +480,10 @@ class Handler(BaseHTTPRequestHandler):
             return j(200, {"items": satellite.reports(int(qs.get("limit") or 50)), "integration": satellite.status()})
         if route == "POST /api/cve/analyze":
             return j(200, satellite.analyze(body.get("cve"), who["user"], verify=body.get("verify") is not False))
+        if route == "GET /api/vulns":
+            return j(200, satellite.bags())
+        if route == "POST /api/vulns/scan":
+            return j(200, satellite.scan_bags(who["user"], verify=body.get("verify") is not False))
         if route == "GET /api/pixel/status":
             from unixai import pixel
 
@@ -593,6 +597,15 @@ class Handler(BaseHTTPRequestHandler):
         m = re.match(r"^/api/cve/reports/([0-9a-f]{8,16})/send$", path)
         if method == "POST" and m:
             return j(201, satellite.send_remediation(m.group(1), str(body.get("host") or ""), who["user"]))
+        m = re.match(r"^/api/vulns/([^/]+)(?:/(scan|send))?$", path)
+        if m and (method, m.group(2)) in (("GET", None), ("POST", "scan"), ("POST", "send")):
+            key = unquote(m.group(1))
+            if m.group(2) == "scan":
+                return j(200, satellite.scan_bags(who["user"], verify=body.get("verify") is not False, only=key))
+            if m.group(2) == "send":
+                return j(201, satellite.send_bag(key, body.get("severities"), who["user"]))
+            b = satellite.bag(key)
+            return j(200, b) if b else j(404, {"error": "Bu sunucu için zafiyet torbası yok; Zafiyet Torbası ekranından tarayın"})
         m = re.match(r"^/api/runs/([^/]+)$", path)
         if method == "GET" and m:
             r = runs.get(unquote(m.group(1)))

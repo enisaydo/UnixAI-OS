@@ -72,7 +72,7 @@ const pctCell = (v, warn, crit) =>
 /* ================================================================== */
 /*  Router                                                             */
 /* ================================================================== */
-const ROUTES = ["dashboard", "server", "runs", "collected", "ask", "cve", "a2a", "agent", "servers", "usage", "logs", "audit", "oplogs", "settings"];
+const ROUTES = ["dashboard", "server", "runs", "collected", "ask", "cve", "vulns", "a2a", "agent", "servers", "usage", "logs", "audit", "oplogs", "settings"];
 
 function route() {
   const [name, ...rest] = location.hash.replace(/^#\/?/, "").split("/");
@@ -83,6 +83,7 @@ function route() {
   $("#sidebar").classList.remove("open");
   if (r === "dashboard") { loadOverview(); refreshApprovals(); loadSecCard(); }
   if (r === "cve") loadCvePage(arg);
+  if (r === "vulns") loadVulnsPage(arg);
   if (r === "server" && rest[0]) {
     if (rest[1]) State.sd.tab = rest[1];
     loadServer(decodeURIComponent(rest[0]));
@@ -330,7 +331,7 @@ function renderServer() {
   const p1 = a.action_items.filter((x) => x.priority === "P1").length;
   const tabs = [
     ["actions", `Aksiyonlar · ${a.action_items.length}`], ["anomalies", `Anomaliler · ${a.anomalies.length}`],
-    ["rules", `Kural bulguları · ${s.findings.length}`], ["rems", `MorpheusAI · ${(State.sd.a2aCount || 0) + (State.sd.rems || []).length}`], ["metrics", "Metrikler"], ["trend", "Trend"], ["raw", "Ham loglar"], ["ai", "AI çağrısı"],
+    ["rules", `Kural bulguları · ${s.findings.length}`], ["rems", `MorpheusAI · ${(State.sd.a2aCount || 0) + (State.sd.rems || []).length}`], ["vulns", "Zafiyetler"], ["metrics", "Metrikler"], ["trend", "Trend"], ["raw", "Ham loglar"], ["ai", "AI çağrısı"],
   ];
   $("#sdBody").innerHTML = `
     ${last && last.runId !== s.run.id && !State.sd.run && last.collect === "failed" ? `<div class="alert danger"><b>Son toplama başarısız (${esc(fmtTime(last.time))}):</b> ${esc(last.error)} — aşağıda son başarılı veri gösteriliyor.</div>` : ""}
@@ -400,6 +401,7 @@ function renderServerTab() {
       `<tr><td colspan="4" class="muted">Eşik aşımı yok.</td></tr>`}</table></div>`;
   } else if (t === "metrics") pane.innerHTML = metricsHtml(s);
   else if (t === "trend") renderTrend(pane);
+  else if (t === "vulns") loadBag(State.sd.name, pane, true);
   else if (t === "raw") renderRaw(pane);
   else if (t === "ai") {
     pane.innerHTML = `<dl class="kv">
@@ -1873,6 +1875,194 @@ function bindCve() {
 }
 
 /* ================================================================== */
+/*  Zafiyet torbası (sunucu bazında açık güvenlik errata'ları / CVE)   */
+/* ================================================================== */
+const BAG_SEVS = ["Critical", "Important", "Moderate", "Low"];
+State.vb = { list: null, bag: null, q: "", onlyOpen: true, sev: "all" };
+
+const bagCounts = (sm) => `<span class="bag-counts">${BAG_SEVS.map((s) => {
+  const n = sm?.counts?.[s] || 0;
+  return `<span class="bc ${n ? `bc-${s.toLowerCase()}` : "bc-zero"}" title="${s}">${n}</span>`;
+}).join("")}</span>`;
+const bagSource = (h) => h.source === "ssh" ? `<span class="label">SSH</span>` : h.source === "satellite" ? `<span class="label blue">Satellite</span>` : "";
+
+async function loadVulnsPage(arg) {
+  if (arg) return loadBag(arg, $("#vbBody"));
+  $("#vbBody").innerHTML = State.vb.list ? "" : `<div class="card">${loadingView("Yükleniyor…")}</div>`;
+  if (State.vb.list) renderVulns();
+  try { State.vb.list = await Api.vulns(); renderVulns(); }
+  catch (e) { $("#vbBody").innerHTML = `<div class="card">${errorView(e)}</div>`; }
+}
+
+async function scanVulns(btn) {
+  btn.disabled = true;
+  $("#vbInfo").innerHTML = `<span class="chip busy">Satellite ve sunucular taranıyor…</span>`;
+  try {
+    State.vb.list = await Api.vulnScan($("#vbVerify").checked);
+    toast(`${State.vb.list.totals.hosts} sunucu tarandı`);
+    if (location.hash.startsWith("#/vulns/")) location.hash = "#/vulns"; else renderVulns();
+  } catch (e) { toast(e.message, true); renderVulnInfo(); }
+  finally { btn.disabled = false; }
+}
+
+function renderVulnInfo() {
+  const l = State.vb.list;
+  $("#vbInfo").textContent = l?.lastScan ? `Son tarama ${ago(l.lastScan)}${l.scanBy ? ` · ${l.scanBy}` : ""}${l.scanMs ? ` · ${fmtDur(l.scanMs)}` : ""}` : "";
+}
+
+function renderVulns() {
+  const l = State.vb.list;
+  renderVulnInfo();
+  if (!l.lastScan) {
+    $("#vbBody").innerHTML = `<div class="card"><div class="empty"><div class="empty-ill">${icon("shield")}</div><h4>Henüz tarama yok</h4>
+      <p>${l.configured ? "<b>Tüm filoyu tara</b>'ya basın: her sunucunun açık güvenlik errata'ları ve CVE'leri Satellite'tan çekilir; Satellite'ta olmayanlar SSH ile kontrol edilir."
+        : `Satellite bağlantısı yok; yalnızca SSH ile tarama yapılabilir. Satellite için <a href="#/settings" data-goto="setSatellite">Ayarlar → Satellite</a>.`}</p></div></div>`;
+    return;
+  }
+  const t = l.totals, c = t.counts, q = State.vb.q.toLowerCase();
+  const kpi = (label, val, sub, cls = "") => `<div class="kpi ${cls}"><div class="k-label">${label}</div><div class="k-val">${val}</div><div class="k-sub">${sub}</div></div>`;
+  const rows = l.items.filter((h) => (!State.vb.onlyOpen || h.summary?.errata || h.error) && (!q || `${h.key} ${h.name} ${h.contentView || ""}`.toLowerCase().includes(q)));
+  $("#vbBody").innerHTML = `
+    <div class="sec-kpis vb-kpis">
+      ${kpi(`${icon("servers", "i i-xs")}Açığı olan sunucu`, `${fmtNum(t.withVulns)}<small> / ${fmtNum(t.hosts)}</small>`, t.errors ? `${t.errors} sunucu taranamadı` : "taranan sunuculardan", t.withVulns ? "kpi-p1" : "")}
+      ${kpi("Critical", fmtNum(c.Critical), "açık errata (sunucu × errata)", c.Critical ? "kpi-p1" : "")}
+      ${kpi("Important", fmtNum(c.Important), `Moderate ${fmtNum(c.Moderate)} · Low ${fmtNum(c.Low)}`)}
+      ${kpi(`${icon("clock", "i i-xs")}SLA aşan`, fmtNum(t.overdue), `Critical ${l.sla.Critical} g · Important ${l.sla.Important} g`, t.overdue ? "kpi-p1" : "")}
+      ${kpi(`${icon("check", "i i-xs")}Yaması hazır`, fmtNum(t.installable), "content view'de, hemen uygulanabilir")}
+      ${kpi(`${icon("shield", "i i-xs")}Farklı CVE`, fmtNum(t.cves), "filoda açık")}
+    </div>
+    <div class="vb-grid">
+      <div class="card">
+        <div class="card-head"><h3>${icon("servers")}Sunucular</h3>
+          <div class="toolbar"><input class="input sm" id="vbSearch" placeholder="Sunucu ara" value="${esc(State.vb.q)}" />
+          <label class="check sm"><input type="checkbox" id="vbOnlyOpen" ${State.vb.onlyOpen ? "checked" : ""} /> Yalnızca açığı olanlar</label></div></div>
+        <div class="table-wrap"><table class="table"><thead><tr><th>Sunucu</th><th>Kaynak</th><th title="Critical · Important · Moderate · Low">C · I · M · L</th>
+          <th class="num">CVE</th><th class="num">SLA aşan</th><th class="num">Yama hazır</th><th>Tarandı</th></tr></thead><tbody>
+          ${rows.map((h) => `<tr class="clickable" data-bag="${esc(h.key)}"><td><b>${esc(h.key)}</b>${h.name !== h.key ? `<div class="muted sm">${esc(h.name)}</div>` : ""}
+              ${h.contentView ? `<div class="muted sm">${esc(h.contentView)} / ${esc(h.lifecycle || "—")}</div>` : ""}</td>
+            <td>${bagSource(h)}${h.stale ? ` <span class="label gold" title="Satellite check-in'i eski">eski</span>` : ""}${!h.inventoryName ? ` <span class="label" title="Trinity envanterinde yok">yalnızca Satellite</span>` : ""}</td>
+            <td>${h.error && !h.summary?.errata ? `<span class="status-err sm">${esc(h.error)}</span>` : bagCounts(h.summary)}${h.error && h.summary?.errata ? `<div class="status-err sm">${esc(h.error)}</div>` : ""}</td>
+            <td class="num">${fmtNum(h.summary?.cves || 0)}</td><td class="num ${h.summary?.overdue ? "status-err" : ""}">${fmtNum(h.summary?.overdue || 0)}</td>
+            <td class="num">${fmtNum(h.summary?.installable || 0)}</td>
+            <td class="sm">${esc(ago(h.fetchedAt || h.checkedAt))}${h.remediation ? `<div><span class="label blue">MorpheusAI'de</span></div>` : ""}</td></tr>`).join("")
+          || `<tr><td colspan="7" class="muted">${State.vb.onlyOpen ? "Açık güvenlik errata'sı olan sunucu yok." : "Sunucu yok."}</td></tr>`}
+        </tbody></table></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h3>${icon("alert")}Filoda en yaygın zafiyetler</h3></div>
+        ${l.topCves.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>CVE</th><th>Önem</th><th class="num">Sunucu</th><th class="num">Yama hazır</th><th></th></tr></thead><tbody>
+          ${l.topCves.map((x) => `<tr><td class="mono sm">${esc(x.id)}<div class="muted sm">${x.errata.map(esc).join(", ")}</div></td><td>${errataSevTag(x.severity)}</td>
+            <td class="num"><b>${x.hosts}</b></td><td class="num">${x.installable}</td>
+            <td>${x.id.startsWith("CVE-") ? `<a class="btn sm" href="#/cve/${encodeURIComponent(x.id)}">Etki analizi</a>` : ""}</td></tr>`).join("")}
+        </tbody></table></div>` : `<p class="muted">Filoda açık güvenlik errata'sı yok.</p>`}
+      </div>
+    </div>`;
+}
+
+async function loadBag(key, el, embedded = false) {
+  el.innerHTML = `<div class="card">${loadingView("Zafiyet torbası yükleniyor…")}</div>`;
+  try { State.vb.bag = await Api.vulnBag(key); }
+  catch (e) {
+    State.vb.bag = null;
+    if (e.status !== 404) { el.innerHTML = `<div class="card">${errorView(e)}</div>`; return; }
+    el.innerHTML = `<div class="card"><div class="empty"><div class="empty-ill">${icon("shield")}</div><h4>Bu sunucu henüz taranmadı</h4>
+      <p class="muted">Açık güvenlik errata'ları ve CVE'ler Satellite'tan (yoksa SSH ile dnf'ten) okunur. Sunucuda hiçbir şey değişmez.</p>
+      <button class="btn primary" data-bag-scan="${esc(key)}">${icon("search", "i i-xs")}Bu sunucuyu tara</button></div></div>`;
+    return;
+  }
+  State.vb.sev = "all";
+  renderBag(el, embedded);
+}
+
+function bagCsv(b) {
+  const q = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const head = ["sunucu", "errata", "onem", "cve", "yayin", "acik_gun", "sla_asimi", "yama_hazir", "yeniden_baslatma", "torbaya_giris"];
+  return [head.join(","), ...b.errata.map((e) => [b.key, e.errataId, e.severity, e.cves.join(" "), e.issued, e.age, e.overdue ? "evet" : "hayir",
+    e.installable ? "evet" : "hayir", e.rebootSuggested ? "evet" : "hayir", (e.firstSeen || "").slice(0, 10)].map(q).join(","))].join("\n");
+}
+
+function renderBag(el, embedded = false) {
+  const b = State.vb.bag, sm = b.summary || {}, sev = State.vb.sev;
+  const rows = b.errata.filter((e) => sev === "all" || (sev === "overdue" ? e.overdue : sev === "cv" ? !e.installable : e.severity === sev));
+  const seg = (k, label, n) => `<button data-bag-sev="${k}" class="${sev === k ? "on" : ""}">${label} <b>${n}</b></button>`;
+  const canSend = morConfigured() && b.errata.some((e) => e.installable);
+  el.innerHTML = `<div class="card">
+    <div class="card-head"><h3>${icon("shield")}${embedded ? "Zafiyet torbası" : `<a href="#/vulns">Zafiyet Torbası</a> / ${esc(b.key)}`} ${bagSource(b)}</h3>
+      <div class="toolbar"><span class="muted sm">${b.fetchedAt ? `veri ${esc(ago(b.fetchedAt))}` : ""}${b.contentView ? ` · ${esc(b.contentView)} / ${esc(b.lifecycle || "—")}` : ""}</span>
+        ${b.inventoryName && !embedded ? `<a class="btn sm" href="#/server/${encodeURIComponent(b.inventoryName)}">Sunucu detayı</a>` : ""}
+        <button class="btn sm" data-bag-csv>${icon("download", "i i-xs")}CSV</button>
+        <button class="btn sm" data-bag-scan="${esc(b.key)}">${icon("refresh", "i i-xs")}Yeniden tara</button></div></div>
+    ${b.error ? `<div class="alert danger"><b>Son tarama başarısız:</b> ${esc(b.error)}${b.errata.length ? " — aşağıda önceki taramanın verisi var." : ""}</div>` : ""}
+    ${b.stale && b.source === "satellite" ? `<div class="alert warn">Sunucunun Satellite check-in'i eski (${esc(ago(satTime(b.lastCheckin)))}); liste güncel olmayabilir. SSH doğrulaması açıkken taranırsa dnf'ten okunur.</div>` : ""}
+    <div class="sec-kpis">
+      <div class="kpi ${sm.counts?.Critical || sm.counts?.Important ? "kpi-p1" : ""}"><div class="k-label">Açık güvenlik errata'sı</div><div class="k-val">${fmtNum(sm.errata || 0)}</div><div class="k-sub">${bagCounts(sm)} <span class="muted">C · I · M · L</span></div></div>
+      <div class="kpi"><div class="k-label">CVE</div><div class="k-val">${fmtNum(sm.cves || 0)}</div><div class="k-sub">farklı CVE numarası</div></div>
+      <div class="kpi ${sm.overdue ? "kpi-p1" : ""}"><div class="k-label">SLA aşan</div><div class="k-val">${fmtNum(sm.overdue || 0)}</div><div class="k-sub">${BAG_SEVS.map((s) => `${s[0]} ${b.sla[s]} g`).join(" · ")}</div></div>
+      <div class="kpi"><div class="k-label">Yaması hazır</div><div class="k-val">${fmtNum(sm.installable || 0)}</div><div class="k-sub">${sm.rebootSuggested ? "yeniden başlatma gerekecek" : "content view'de mevcut"}</div></div>
+    </div>
+    ${canSend || b.remediation ? `<div class="vb-send">${b.remediation ? `<span class="label blue">MorpheusAI'ye gönderildi · ${esc(ago(b.remediation.sentAt))}${b.remediation.sentBy ? ` · ${esc(b.remediation.sentBy)}` : ""} · ${b.remediation.advisories?.length || 0} errata</span>
+        ${b.remediation.url ? `<a class="btn sm link" href="${esc(b.remediation.url)}" target="_blank" rel="noopener">Playbook</a>` : ""}` : ""}
+      ${canSend ? `<span class="muted sm">Yaması hazır errata'ları tek playbook olarak gönder (onayınızdan sonra AAP):</span>
+        <button class="btn sm primary" data-bag-send="Critical,Important">${icon("bolt", "i i-xs")}Critical + Important</button>
+        <button class="btn sm" data-bag-send="Critical,Important,Moderate,Low">Tümü</button>` : ""}</div>` : ""}
+    <div class="card-head"><div class="sub-h">Açık güvenlik errata'ları</div>
+      <div class="seg">${seg("all", "Tümü", b.errata.length)}${BAG_SEVS.map((s) => seg(s, s, sm.counts?.[s] || 0)).join("")}${seg("overdue", "SLA aşan", sm.overdue || 0)}${seg("cv", "Yaması yok", b.errata.filter((e) => !e.installable).length)}</div></div>
+    ${rows.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Errata</th><th>Önem</th><th>CVE</th><th>Yayın</th><th class="num">Açık gün</th><th>Yama</th><th>Torbaya giriş</th></tr></thead><tbody>
+      ${rows.map((e) => `<tr><td class="mono">${esc(e.errataId)}${e.title ? `<div class="muted sm">${esc(e.title)}</div>` : ""}${e.packages?.length ? `<div class="muted sm mono">${e.packages.map(esc).join(", ")}</div>` : ""}</td>
+        <td>${errataSevTag(e.severity)}</td>
+        <td class="mono sm">${e.cves.slice(0, 8).map((c) => `<a href="#/cve/${encodeURIComponent(c)}" title="Filo etki analizi">${esc(c)}</a>`).join("<br>") || "—"}${e.cves.length > 8 ? `<div class="muted">+${e.cves.length - 8}</div>` : ""}</td>
+        <td class="sm">${esc(e.issued || "—")}</td>
+        <td class="num ${e.overdue ? "status-err" : ""}">${e.age ?? "—"}${e.overdue ? `<div class="sm">SLA ${b.sla[e.severity]} g aşıldı</div>` : ""}</td>
+        <td>${e.installable ? `<span class="label green">hazır</span>` : `<span class="label gold" title="Satellite'ta content view publish/promote gerekiyor">content view'de yok</span>`}${e.rebootSuggested ? ` <span class="label gold">reboot</span>` : ""}</td>
+        <td class="sm">${esc((e.firstSeen || "").slice(0, 10))}</td></tr>`).join("")}
+    </tbody></table></div>` : `<p class="${b.errata.length ? "muted" : "status-ok"}">${b.errata.length ? "Bu filtrede errata yok." : `${icon("check", "i i-xs")} Bu sunucuda açık güvenlik errata'sı yok.`}</p>`}
+    ${b.closed?.length ? `<details class="mt"><summary class="sub-h">Kapananlar · ${b.closed.length}</summary><div class="table-wrap"><table class="table"><thead><tr><th>Errata</th><th>Önem</th><th>CVE</th><th>Torbaya giriş</th><th>Kapandı</th></tr></thead><tbody>
+      ${b.closed.map((e) => `<tr><td class="mono">${esc(e.errataId)}</td><td>${errataSevTag(e.severity)}</td><td class="mono sm">${e.cves.slice(0, 4).map(esc).join(", ")}${e.cves.length > 4 ? " …" : ""}</td>
+        <td class="sm">${esc((e.firstSeen || "").slice(0, 10))}</td><td class="sm">${esc(fmtTime(e.closedAt))}</td></tr>`).join("")}</tbody></table></div></details>` : ""}
+  </div>`;
+}
+
+function bindVulns() {
+  $("#vbScan").onclick = (e) => scanVulns(e.currentTarget);
+  const host = (el) => el.closest("#vbBody") ? $("#vbBody") : $("#sdPane");
+  document.addEventListener("click", async (e) => {
+    if (!e.target.closest("#vbBody, #sdPane")) return;
+    const r = e.target.closest("[data-bag]");
+    if (r && !e.target.closest("a")) { location.hash = `#/vulns/${encodeURIComponent(r.dataset.bag)}`; return; }
+    const el = host(e.target), embedded = el.id === "sdPane";
+    const s = e.target.closest("[data-bag-sev]");
+    if (s) { State.vb.sev = s.dataset.bagSev; return renderBag(el, embedded); }
+    if (e.target.closest("[data-bag-csv]")) return download(`zafiyet-torbasi-${State.vb.bag.key}.csv`, "﻿" + bagCsv(State.vb.bag), "text/csv");
+    const sc = e.target.closest("[data-bag-scan]");
+    if (sc) {
+      sc.disabled = true;
+      el.innerHTML = `<div class="card">${loadingView(`${sc.dataset.bagScan} taranıyor…`)}</div>`;
+      try { State.vb.bag = await Api.vulnBagScan(sc.dataset.bagScan, $("#vbVerify").checked); State.vb.list = null; renderBag(el, embedded); }
+      catch (err) { el.innerHTML = `<div class="card">${errorView(err)}</div>`; }
+      return;
+    }
+    const sd = e.target.closest("[data-bag-send]");
+    if (!sd) return;
+    sd.disabled = true;
+    try {
+      const rec = await Api.vulnBagSend(State.vb.bag.key, sd.dataset.bagSend.split(","));
+      toast(`MorpheusAI playbook'u üretti (uyum ${rec.score ?? "—"}) — onayınızı bekliyor`);
+      State.vb.bag = await Api.vulnBag(State.vb.bag.key);
+      renderBag(el, embedded);
+      refreshApprovals();
+    } catch (err) { toast(err.message, true); sd.disabled = false; }
+  });
+  $("#vbView").addEventListener("input", (e) => {
+    if (e.target.id !== "vbSearch") return;
+    State.vb.q = e.target.value;
+    const pos = e.target.selectionStart;
+    renderVulns();
+    const i = $("#vbSearch"); i.focus(); i.setSelectionRange(pos, pos);
+  });
+  $("#vbView").addEventListener("change", (e) => { if (e.target.id === "vbOnlyOpen") { State.vb.onlyOpen = e.target.checked; renderVulns(); } });
+}
+
+/* ================================================================== */
 /*  Ajan & MCP                                                         */
 /* ================================================================== */
 const MODE_LABEL = { native: "function calling", json: "JSON protokolü", auto: "otomatik" };
@@ -2509,6 +2699,7 @@ function bindEvents() {
   bindPalette();
   bindAgentPage();
   bindCve();
+  bindVulns();
   bindAudit();
   bindOplogs();
   bindA2A();

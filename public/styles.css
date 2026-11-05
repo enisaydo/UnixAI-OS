@@ -701,3 +701,19 @@ tr.row-err td:first-child { box-shadow: inset 3px 0 0 var(--crit); }
 pre.cmd { margin: 6px 0 0; padding: 8px 10px; border-radius: 8px; background: var(--surface-2, rgba(127,127,127,.1)); font: 12px/1.5 var(--mono, monospace); white-space: pre-wrap; }
 @media (max-width: 1100px) { .sec-top { grid-template-columns: 1fr; } .sec-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 560px) { .sec-kpis { grid-template-columns: 1fr; } }
+
+/* Zafiyet torbası */
+.vb-kpis { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.vb-kpis .k-val small { font-size: 14px; color: var(--muted); font-weight: 500; }
+.vb-grid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 18px; align-items: start; }
+.bag-counts { display: inline-flex; gap: 4px; }
+.bag-counts .bc { min-width: 26px; height: 22px; padding: 0 6px; border-radius: 6px; display: inline-grid; place-items: center; font: 600 12px var(--mono); }
+.bc-critical { background: var(--crit); color: #fff; }
+.bc-important { background: var(--crit-soft); color: var(--crit); }
+.bc-moderate { background: var(--warn-soft); color: var(--warn); }
+.bc-low { background: var(--info-soft); color: var(--info); }
+.bc-zero { background: var(--surface-2); color: var(--muted); }
+.vb-send { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0 14px; }
+#sdPane > .card { border: 0; box-shadow: none; padding: 0; background: none; }
+@media (max-width: 1100px) { .vb-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } .vb-grid { grid-template-columns: 1fr; } }
+@media (max-width: 640px) { .vb-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
