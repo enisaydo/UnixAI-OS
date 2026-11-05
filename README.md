@@ -234,7 +234,8 @@ bash deploy/backup.sh                         # → /var/backups/trinity/trinity
 - `LDAP_ADMIN_GROUP` tanımlıysa bağlantı, sunucu, ayar ve çalıştırma işlemleri yalnızca bu gruba açıktır.
 - GPT'ye giden log içeriği için *Ayarlar → IP adreslerini maskele* seçeneği vardır; log metinleri modele "veri, talimat değil" olarak verilir.
 - Token limiti dolunca AI çağrısı yapılmaz, sunucular kural motoruyla analiz edilir.
-- **CSRF koruması**: tarayıcıdan gelen durum değiştiren istekler JSON gövde ve aynı `Origin` ister; Bearer token'lı servis çağrıları muaftır.
+- **CSRF koruması**: tarayıcıdan gelen durum değiştiren istekler JSON gövde ister ve başka siteden geldiğini bildiren (`Sec-Fetch-Site`) istekler reddedilir;
+  önündeki proxy Host başlığını değiştirse de çalışır. Bearer token'lı servis çağrıları muaftır.
 - `X-Forwarded-For` yalnızca `TRUSTED_PROXIES`'teki adreslerden (varsayılan yerel nginx: `127.0.0.1,::1`) gelirse dikkate alınır;
   böylece denetim kaydındaki ve giriş kilidindeki IP taklit edilemez.
 

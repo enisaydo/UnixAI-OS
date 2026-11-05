@@ -236,8 +236,10 @@ def main():
             except urllib.error.HTTPError as e:
                 return e.code
         check(raw_post("/runs", b'{"mode":"demo"}', {"content-type": "text/plain"}) == 403, "CSRF: text/plain gövdeli POST reddedildi")
-        check(raw_post("/runs", b'{"mode":"demo"}', {"content-type": "application/json", "origin": "https://kotu-site.example"}) == 403,
-              "CSRF: farklı Origin'den gelen POST reddedildi")
+        check(raw_post("/runs", b'{"mode":"demo"}', {"content-type": "application/json", "origin": "https://kotu-site.example", "sec-fetch-site": "cross-site"}) == 403,
+              "CSRF: başka siteden gelen POST reddedildi")
+        check(raw_post("/limits", b'{}', {"content-type": "application/json", "origin": "https://trinity.kurum.local", "host": "127.0.0.1:3000",
+                                          "sec-fetch-site": "same-origin"}) == 200, "CSRF: Host'u değiştiren proxy arkasında aynı kaynaktan POST kabul edilir")
 
         print("\nGenAI bağlantısı (arayüzden)")
         conn = {

@@ -312,17 +312,15 @@ class Handler(BaseHTTPRequestHandler):
             print(f"[işlem] kayıt hatası: {e}", flush=True)
 
     def csrf_error(self, method: str):
-        """Tarayıcıdan gelen durum değiştiren istekler: JSON gövde (çapraz kaynakta CORS ön kontrolüne takılır) ve aynı Origin.
+        """Tarayıcıdan gelen durum değiştiren istekler: JSON gövde (çapraz kaynakta CORS ön kontrolüne takılır) ve aynı kaynak (Sec-Fetch-Site).
         Bearer token'lı servis çağrıları muaf (çerez kullanmazlar)."""
         if method in ("GET", "HEAD", "OPTIONS") or re.match(r"^Bearer\s", self.headers.get("authorization") or "", re.I):
             return None
         if "application/json" not in (self.headers.get("content-type") or "").lower() and int(self.headers.get("content-length") or 0) > 0:
             return "İstek gövdesi application/json olmalı"
-        origin = self.headers.get("origin")
-        if origin and origin != "null":
-            host = (self.headers.get("x-forwarded-host") or self.headers.get("host") or "").split(",")[0].strip().lower()
-            if urlsplit(origin).netloc.lower() != host:
-                return "Farklı bir siteden gelen istek reddedildi (CSRF koruması)"
+        # Tarayıcının kendi bildirdiği kaynak: önündeki proxy Host'u değiştirse de doğrudur (same-origin | same-site | cross-site | none)
+        if (self.headers.get("sec-fetch-site") or "").lower() in ("cross-site", "same-site"):
+            return "Farklı bir siteden gelen istek reddedildi (CSRF koruması)"
         return None
 
     # ---------------- API ----------------
