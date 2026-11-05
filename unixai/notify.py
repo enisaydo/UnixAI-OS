@@ -276,6 +276,17 @@ def approval_pending(rec: dict) -> None:
          ["Onaydan önce AAP'de hiçbir şey çalışmaz. Trinity → MorpheusAI sekmesinden YAML'ı inceleyip onaylayın veya reddedin."], "dashboard")
 
 
+def approvals_batch(recs: list) -> None:
+    """Toplama sonrası otomatik gönderilen playbook'lar: tek bildirim"""
+    if not recs:
+        return
+    if len(recs) == 1:
+        return approval_pending(recs[0])
+    emit("approvals", f"{len(recs)} playbook onayınızı bekliyor", "warning", "Toplama sonrası P1 bulgular MorpheusAI'ye otomatik gönderildi.",
+         [("Sunucular", ", ".join(sorted({str(r.get("server")) for r in recs}))[:300])],
+         [f"{r.get('server')}: {r.get('title')}" for r in recs[:10]] + ["Onaydan önce AAP'de hiçbir şey çalışmaz."], "dashboard")
+
+
 def vulns_scanned(b: dict) -> None:
     t = b.get("totals") or {}
     c = t.get("counts") or {}

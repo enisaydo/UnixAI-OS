@@ -206,7 +206,7 @@ def _post(payload: dict, user, extra: dict) -> dict:
         rows = _records()
         rows.append(rec)
         _save_records(rows)
-    if rec.get("status") == "generated" and not rec.get("approval") and rec.get("runnable") is not False:
+    if rec.get("status") == "generated" and not rec.get("approval") and rec.get("runnable") is not False and not getattr(_batch, "on", False):
         try:
             from . import notify
             notify.approval_pending(rec)
@@ -295,6 +295,9 @@ def list_records(server=None, refresh_pending=True) -> list:
     return sorted(rows, key=lambda x: x.get("sentAt") or "", reverse=True)
 
 
+_batch = threading.local()  # otomatik gönderimde onay bildirimi tek tek değil, toplu gider
+
+
 def auto_send(results: list, user="zamanlayıcı") -> list:
     """Toplama sonrası P1 (veya P1+P2) aksiyonları gönderir; aynı sunucu+başlık son 24 saatte gönderildiyse atlar."""
     c = get()
@@ -306,6 +309,22 @@ def auto_send(results: list, user="zamanlayıcı") -> list:
     since = datetime.now(timezone.utc) - timedelta(hours=24)
     recent = {(x["server"], x["title"]) for x in _records() if x.get("sentAt") and parse_iso(x["sentAt"]) > since}
     sent = []
+    _batch.on = True
+    try:
+        _auto_send(results, user, prios, recent, sent, runs)
+    finally:
+        _batch.on = False
+    if sent:
+        print(f"[morpheus] {len(sent)} bulgu MorpheusAI'ye gönderildi", flush=True)
+        try:
+            from . import notify
+            notify.approvals_batch([x for x in sent if x.get("status") == "generated" and not x.get("approval")])
+        except Exception as e:
+            print(f"[bildirim] {e}", flush=True)
+    return sent
+
+
+def _auto_send(results, user, prios, recent, sent, runs):
     for res in results:
         if not res:
             continue
@@ -319,9 +338,6 @@ def auto_send(results: list, user="zamanlayıcı") -> list:
                     recent.add((res["name"], act["title"]))
                 except Exception as e:
                     print(f"[morpheus] otomatik gönderim başarısız ({res['name']}: {act['title']}): {e}", flush=True)
-    if sent:
-        print(f"[morpheus] {len(sent)} bulgu MorpheusAI'ye gönderildi", flush=True)
-    return sent
 
 
 # ------------------------------------------------------------------
