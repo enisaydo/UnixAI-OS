@@ -38,6 +38,8 @@ PUBLIC_ROUTES = {"POST /api/auth/login", "POST /api/auth/logout", "GET /api/auth
 ADMIN_RE = re.compile(r"^/api/(limits|prompts|connection|settings|servers|runs|integrations|mcp|agent/settings)(/|$)")
 # Servisler arası erişim (MCP sunucusu, otomasyon): Authorization: Bearer <UNIXAI_API_TOKEN> (virgülle birden fazla, ≥16 karakter)
 API_TOKENS = [t.strip() for t in env("UNIXAI_API_TOKEN").split(",") if len(t.strip()) >= 16]
+# X-Forwarded-For yalnızca bu adreslerden gelirse dikkate alınır (önündeki nginx/haproxy); yoksa istemci IP'si taklit edilebilir
+TRUSTED_PROXIES = {p.strip() for p in (env("TRUSTED_PROXIES", "127.0.0.1,::1") or "").split(",") if p.strip()}
 
 
 def api_session(headers):
@@ -145,7 +147,11 @@ class Handler(BaseHTTPRequestHandler):
 
     # ---------------- yardımcılar ----------------
     def client_ip(self) -> str:
-        return (self.headers.get("x-forwarded-for") or self.client_address[0]).split(",")[0].strip()
+        peer = self.client_address[0]
+        fwd = self.headers.get("x-forwarded-for")
+        if fwd and (peer in TRUSTED_PROXIES or "*" in TRUSTED_PROXIES):
+            return fwd.split(",")[0].strip()[:64] or peer
+        return peer
 
     def send_json(self, code: int, data, extra_headers=None):
         self._status = code
@@ -305,6 +311,20 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:  # kayıt hatası isteği bozmasın
             print(f"[işlem] kayıt hatası: {e}", flush=True)
 
+    def csrf_error(self, method: str):
+        """Tarayıcıdan gelen durum değiştiren istekler: JSON gövde (çapraz kaynakta CORS ön kontrolüne takılır) ve aynı Origin.
+        Bearer token'lı servis çağrıları muaf (çerez kullanmazlar)."""
+        if method in ("GET", "HEAD", "OPTIONS") or re.match(r"^Bearer\s", self.headers.get("authorization") or "", re.I):
+            return None
+        if "application/json" not in (self.headers.get("content-type") or "").lower() and int(self.headers.get("content-length") or 0) > 0:
+            return "İstek gövdesi application/json olmalı"
+        origin = self.headers.get("origin")
+        if origin and origin != "null":
+            host = (self.headers.get("x-forwarded-host") or self.headers.get("host") or "").split(",")[0].strip().lower()
+            if urlsplit(origin).netloc.lower() != host:
+                return "Farklı bir siteden gelen istek reddedildi (CSRF koruması)"
+        return None
+
     # ---------------- API ----------------
     def handle_api(self, url):
         length = int(self.headers.get("content-length") or 0)
@@ -319,6 +339,9 @@ class Handler(BaseHTTPRequestHandler):
             body = {}
         self._body = body
         path, method = url.path, self.command
+        bad = self.csrf_error(method)
+        if bad:
+            return self.send_json(403, {"error": bad})
         route = f"{method} {path}"
         qs = {k: v[0] for k, v in parse_qs(url.query).items()}
 

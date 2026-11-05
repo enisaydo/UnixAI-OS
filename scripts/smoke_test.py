@@ -229,6 +229,15 @@ def main():
         cookie[0] = (h.get("set-cookie") or "").split(";")[0]
         check(st == 200 and cookie[0].startswith("unixai_session=") and "HttpOnly" in (h.get("set-cookie") or ""), "yerel yönetici girişi + HttpOnly çerez")
         check(api("/health")[1]["mode"] == "demo", "başlangıçta GenAI yok → demo modu")
+        def raw_post(path, data, headers):
+            req = urllib.request.Request(base + "/api" + path, method="POST", data=data, headers={"cookie": cookie[0], **headers})
+            try:
+                return urllib.request.urlopen(req, timeout=10).status
+            except urllib.error.HTTPError as e:
+                return e.code
+        check(raw_post("/runs", b'{"mode":"demo"}', {"content-type": "text/plain"}) == 403, "CSRF: text/plain gövdeli POST reddedildi")
+        check(raw_post("/runs", b'{"mode":"demo"}', {"content-type": "application/json", "origin": "https://kotu-site.example"}) == 403,
+              "CSRF: farklı Origin'den gelen POST reddedildi")
 
         print("\nGenAI bağlantısı (arayüzden)")
         conn = {
