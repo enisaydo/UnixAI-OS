@@ -1,7 +1,7 @@
 """Uygulama ayarları (Ayarlar ekranından yönetilir, data/settings.json)
 
   ssh        : varsayılan SSH kullanıcısı (root), anahtar dosyası, host key politikası, zaman aşımları
-  schedule   : günlük otomatik toplama saati
+  schedule   : günlük otomatik toplama saati; vulnScan → ardından zafiyet torbası taraması (Satellite bağlıysa)
   analysis   : AI analizi, filo özeti, IP maskeleme, saklama süresi
   thresholds : kural motoru eşikleri
 """
@@ -27,7 +27,7 @@ DEFAULTS = {
         "commandTimeout": 180,
         "concurrency": 10,
     },
-    "schedule": {"enabled": True, "time": "06:30", "lastRunDate": None},
+    "schedule": {"enabled": True, "time": "06:30", "lastRunDate": None, "vulnScan": True},
     "analysis": {"ai": True, "fleetSummary": True, "redactIps": False, "retentionDays": 90},
     "thresholds": dict(rules.DEFAULTS),
 }
@@ -75,6 +75,7 @@ def save(data: dict, user=None) -> dict:
     if not re.match(r"^([01]\d|2[0-3]):[0-5]\d$", str(schedule["time"])):
         raise ApiError("Saat SS:DD biçiminde olmalı (ör. 06:30)")
     schedule["enabled"] = bool(schedule["enabled"])
+    schedule["vulnScan"] = bool(schedule.get("vulnScan"))
     for k in ("ai", "fleetSummary", "redactIps"):
         analysis[k] = bool(analysis[k])
     analysis["retentionDays"] = int(_num(analysis["retentionDays"], "Saklama süresi (gün)", 7, 3650))

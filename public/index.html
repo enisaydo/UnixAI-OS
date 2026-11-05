@@ -423,6 +423,7 @@
           <a href="#/settings" data-anchor="setGenai">GenAI bağlantısı</a>
           <a href="#/settings" data-anchor="setMorpheus">MorpheusAI</a>
           <a href="#/settings" data-anchor="setSatellite">Satellite</a>
+          <a href="#/settings" data-anchor="setNotify">Bildirimler</a>
           <a href="#/settings" data-anchor="setSsh">SSH &amp; zamanlama</a>
           <a href="#/settings" data-anchor="setThr">Eşikler</a>
           <a href="#/settings" data-anchor="setLimits">Token limitleri</a>
@@ -592,6 +593,57 @@
           </form>
         </div>
 
+        <div class="card anchor" id="setNotify">
+          <div class="card-head">
+            <h3><svg class="i" data-icon="bell"></svg>Bildirimler (Teams / Slack / e-posta)</h3>
+            <span class="muted sm" id="ntInfo"></span>
+          </div>
+          <p class="muted sm">Günlük toplama bitince ekibe özet, kritik sunucu ve P1 bulgularda uyarı, playbook onay beklediğinde hatırlatma ve
+            zafiyet taramasında Critical / SLA aşımı bildirimi gider. Kimse Trinity'yi açmadan sorunlardan haberdar olur.</p>
+          <form id="ntForm" class="form">
+            <div class="grid-2">
+              <div class="form">
+                <div class="sub-h">Webhook</div>
+                <label class="check"><input type="checkbox" name="webhook.enabled" /> Webhook'a gönder</label>
+                <label>Tip<select class="input" name="webhook.type">
+                  <option value="teams">Microsoft Teams (Workflows / gelen webhook)</option>
+                  <option value="slack">Slack (incoming webhook)</option>
+                  <option value="generic">Genel JSON webhook</option></select></label>
+                <label>Webhook adresi<input class="input mono" name="webhook.url" type="password" autocomplete="new-password" placeholder="https://…" />
+                  <small>Teams: kanal → <i>Workflows</i> → "Post to a channel when a webhook request is received". Adres gizlidir, loglara yazılmaz.</small></label>
+              </div>
+              <div class="form">
+                <div class="sub-h">E-posta (SMTP)</div>
+                <label class="check"><input type="checkbox" name="email.enabled" /> E-posta gönder</label>
+                <div class="grid-3">
+                  <label>SMTP sunucusu<input class="input mono" name="email.host" placeholder="smtp.kurum.local" /></label>
+                  <label>Port<input class="input" name="email.port" type="number" min="1" max="65535" /></label>
+                  <label>Güvenlik<select class="input" name="email.security"><option value="none">yok (iç relay)</option><option value="starttls">STARTTLS</option><option value="ssl">SSL/TLS</option></select></label>
+                </div>
+                <div class="grid-2">
+                  <label>Kullanıcı (ops.)<input class="input" name="email.user" autocomplete="off" /></label>
+                  <label>Parola (ops.)<input class="input" name="email.password" type="password" autocomplete="new-password" /></label>
+                </div>
+                <label>Gönderen<input class="input" name="email.from" placeholder="trinity@kurum.com.tr" /></label>
+                <label>Alıcılar<input class="input" name="email.to" placeholder="linux-ekibi@kurum.com.tr, guvenlik@kurum.com.tr" /><small>Virgülle ayırın.</small></label>
+              </div>
+            </div>
+            <div class="sub-h">Hangi olaylarda?</div>
+            <div class="grid-2">
+              <label class="check"><input type="checkbox" name="events.runSummary" /> Toplama ve analiz bitti (günlük özet)</label>
+              <label class="check"><input type="checkbox" name="events.critical" /> Kritik sunucu / P1 bulgu (özet kapalıyken de)</label>
+              <label class="check"><input type="checkbox" name="events.approvals" /> MorpheusAI playbook'u onay bekliyor</label>
+              <label class="check"><input type="checkbox" name="events.vulns" /> Zafiyet taraması: Critical / SLA aşan errata</label>
+            </div>
+            <label>Trinity adresi<input class="input mono" name="appUrl" placeholder="https://trinity.kurum.local" /><small>Bildirimdeki "Trinity'de aç" düğmesi bu adrese gider.</small></label>
+            <div class="toolbar">
+              <button class="btn primary" type="submit">Kaydet</button>
+              <button class="btn" type="button" id="ntTest">Kaydet + test bildirimi gönder</button>
+            </div>
+            <div id="ntResult"></div>
+          </form>
+        </div>
+
         <div class="grid-2">
           <div class="card anchor" id="setSsh">
             <div class="card-head"><h3><svg class="i" data-icon="terminal"></svg>SSH (agentless toplama)</h3></div>
@@ -617,6 +669,7 @@
                 <label class="check"><input type="checkbox" name="schedule.enabled" /> Her gün otomatik topla</label>
                 <label>Saat<input class="input" name="schedule.time" type="time" /></label>
               </div>
+              <label class="check"><input type="checkbox" name="schedule.vulnScan" /> Ardından zafiyet torbasını tara (Satellite bağlıysa; Critical / SLA aşımı bildirilir)</label>
               <label class="check"><input type="checkbox" name="analysis.ai" /> GenAI ile analiz et (kapalıysa yalnızca kural motoru)</label>
               <label class="check"><input type="checkbox" name="analysis.fleetSummary" /> Filo özeti üret</label>
               <label class="check"><input type="checkbox" name="analysis.redactIps" /> GenAI'a gönderirken IP adreslerini maskele (10.20.x.x)</label>

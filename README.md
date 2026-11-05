@@ -20,6 +20,7 @@ Merkez sunucu ──ssh (root, anahtar, salt-okunur komutlar)──▶ RHEL hede
 python3 server.py              # → http://localhost:3000
 python3 scripts/smoke_test.py  # sahte TMS/GPT gateway + sahte ssh ile uçtan uca testler
 python3 scripts/satellite_test.py  # sahte Satellite (HTTPS) + sahte MorpheusAI ile CVE etki analizi ve zafiyet torbası testi
+python3 scripts/notify_test.py     # sahte Teams/Slack webhook + sahte SMTP ile bildirim testi
 ```
 
 Python 3.9+ yeterli (RHEL 9 varsayılan `python3`; RHEL 8'de `python3.11` veya `python39` paketi). GenAI bağlı değilken **demo modunda** kural motoru çalışır;
@@ -158,7 +159,7 @@ needs-restarting, top prosesler, zombie. Root değilse ayrıcalıklı komutlar `
 | **Sunucular** | Envanter, SSH testi, public key ve hedef kurulum komutları |
 | **Token Kullanımı** | Günlük grafik, kullanıcı/tür dağılımı, limitler, CSV |
 | **AI Logları** | Token servisi ve GPT istek/cevapları (maskeli) |
-| **Ayarlar** | GenAI bağlantısı, SSH, zamanlama, eşikler, token limitleri, sistem mesajı |
+| **Ayarlar** | GenAI bağlantısı, MorpheusAI, Satellite, bildirimler, SSH, zamanlama, eşikler, token limitleri, sistem mesajı |
 
 Arayüz koyu (varsayılan) ve açık temayı destekler (üst çubuktaki ay simgesi veya `?theme=light`).
 **Ctrl+K** (veya `/`) ile sunucu, ekran ve işlem araması açılır; genel bakışta sunucular kart veya tablo olarak,
@@ -168,6 +169,25 @@ duruma göre filtrelenerek görüntülenebilir. Aksiyon komutları terminal blo�
 
 Her gün *Ayarlar → Zamanlama*'daki saatte (varsayılan 06:30, `USAGE_TIMEZONE`) tüm etkin sunucular toplanır.
 Servis o dakikada kapalıysa sonraki 15 dakika içinde telafi edilir. Saklama süresi varsayılan 90 gün.
+*Ardından zafiyet torbasını tara* açıksa (varsayılan) toplama bitince Satellite + SSH ile zafiyet torbaları da tazelenir.
+
+## Bildirimler (Teams / Slack / e-posta)
+
+**Ayarlar → Bildirimler**: ekip Trinity'yi açmadan haberdar olur.
+
+| Olay | Ne gider |
+|---|---|
+| Toplama ve analiz bitti | Filo özeti, kritik / uyarıdaki sunucular, ortalama sağlık puanı, P1 aksiyonlar, toplanamayan sunucular |
+| Kritik sunucu / P1 bulgu | Günlük özet kapalıyken bile yalnızca sorun varsa |
+| Playbook onay bekliyor | MorpheusAI'nin ürettiği playbook: sunucu, öncelik, gönderen |
+| Zafiyet taraması | Critical ve SLA'yı aşan errata sayıları, en kötü sunucular |
+
+- **Webhook**: Microsoft Teams (kanal → *Workflows* → "Post to a channel when a webhook request is received"; Adaptive Card),
+  Slack incoming webhook veya genel JSON (kendi otomasyonunuz / ITSM için). Adres gizlidir; loglara yalnızca host yazılır.
+  Internet'e proxy ile çıkılıyorsa servis ortamındaki `https_proxy` / `no_proxy` kullanılır (`NOTIFY_NO_PROXY=true` ile doğrudan).
+- **E-posta**: kurum SMTP relay'i (STARTTLS / SSL / düz), opsiyonel kullanıcı-parola, birden fazla alıcı; HTML + düz metin.
+- *Kaydet + test bildirimi gönder* ile anında doğrulanır; her gönderim `logs/bildirim/` altına yazılır.
+- *Trinity adresi* girilirse bildirimde **Trinity'de aç** düğmesi çıkar.
 
 ## Güncelleme
 
@@ -182,6 +202,9 @@ cd /opt/unixai-os && git pull && systemctl restart unixai-os
 - `LDAP_ADMIN_GROUP` tanımlıysa bağlantı, sunucu, ayar ve çalıştırma işlemleri yalnızca bu gruba açıktır.
 - GPT'ye giden log içeriği için *Ayarlar → IP adreslerini maskele* seçeneği vardır; log metinleri modele "veri, talimat değil" olarak verilir.
 - Token limiti dolunca AI çağrısı yapılmaz, sunucular kural motoruyla analiz edilir.
+- **CSRF koruması**: tarayıcıdan gelen durum değiştiren istekler JSON gövde ve aynı `Origin` ister; Bearer token'lı servis çağrıları muaftır.
+- `X-Forwarded-For` yalnızca `TRUSTED_PROXIES`'teki adreslerden (varsayılan yerel nginx: `127.0.0.1,::1`) gelirse dikkate alınır;
+  böylece denetim kaydındaki ve giriş kilidindeki IP taklit edilemez.
 
 ## Pixel Office — ajanların konuştuğu açık kaynak ofis
 

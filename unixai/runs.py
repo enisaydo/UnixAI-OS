@@ -257,6 +257,25 @@ def _finish(run: dict, results: list, use_ai: bool) -> None:
             morpheus.auto_send(results, run["user"])
         except Exception as e:  # köprü hatası toplamayı bozmasın
             print(f"[morpheus] otomatik gönderim hatası: {e}", flush=True)
+        try:
+            from . import notify
+            notify.run_finished(run, results)
+        except Exception as e:  # bildirim hatası toplamayı bozmasın
+            print(f"[bildirim] {e}", flush=True)
+    if run["trigger"] == "schedule" and settings.get()["schedule"].get("vulnScan"):
+        _scheduled_vuln_scan()
+
+
+def _scheduled_vuln_scan() -> None:
+    """Günlük toplamanın ardından zafiyet torbalarını tazeler (Satellite + SSH) ve Critical / SLA aşımını bildirir"""
+    from . import notify, satellite
+
+    if not satellite.is_configured():
+        return
+    try:
+        notify.vulns_scanned(satellite.scan_bags("zamanlayıcı"))
+    except Exception as e:
+        print(f"[zamanlayıcı] zafiyet taraması: {e}", flush=True)
 
 
 def _register(run: dict) -> None:

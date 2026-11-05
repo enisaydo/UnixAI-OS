@@ -11,6 +11,7 @@
   genai          TMS token + GPT çağrıları
   morpheus       MorpheusAI köprüsü (bulgu gönderimi, onay aktarımı, durum)
   satellite      Red Hat Satellite API çağrıları ve CVE etki analizleri
+  bildirim       Teams / Slack / webhook / e-posta bildirimleri (alıcı, sonuç; webhook adresi yazılmaz)
   mcp-istemci    bağlı MCP sunucularına giden çağrılar
   mcp-sunucu     /mcp'ye gelen çağrılar
   ajan           ajanın her araç adımı
@@ -45,6 +46,7 @@ CATEGORIES = {
     "genai": "GenAI (TMS + GPT) çağrıları",
     "morpheus": "MorpheusAI köprüsü",
     "satellite": "Red Hat Satellite (CVE etki analizi)",
+    "bildirim": "Bildirimler (Teams / Slack / e-posta)",
     "mcp-istemci": "Giden MCP çağrıları",
     "mcp-sunucu": "Gelen MCP çağrıları (/mcp)",
     "ajan": "Ajan adımları",

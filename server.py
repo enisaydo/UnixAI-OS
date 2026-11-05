@@ -27,7 +27,7 @@ from unixai.env import ROOT, env, load_env
 load_env()
 
 from unixai import (a2a, agent, live, oplog, tracing, analyzer, audit, auth, collector, connection, demo, diagnostics, genai, inventory,  # noqa: E402
-                    logger, mcp_hub, morpheus, prompts, runs, satellite, settings, usage)
+                    logger, mcp_hub, morpheus, notify, prompts, runs, satellite, settings, usage)
 from unixai.errors import ApiError  # noqa: E402
 
 PORT = int(env("PORT", "3000") or 3000)
@@ -125,7 +125,7 @@ def chat_context(ctx):
 
 def health(deep: bool) -> dict:
     out = {"status": "ok", "mode": mode(), "auth": auth.status(), "genai": genai.status(), "scheduler": runs.scheduler_status(),
-           "servers": len(inventory.list_servers()), "morpheus": morpheus.status(), "satellite": satellite.status(),
+           "servers": len(inventory.list_servers()), "morpheus": morpheus.status(), "satellite": satellite.status(), "notify": {"channels": notify.channels()},
            "agent": {"mode": agent.settings()["mode"], "detected": agent.settings().get("detected"), "connections": len(mcp_hub.connections_view())}}
     if deep and mode() == "genai":
         try:
@@ -485,6 +485,16 @@ class Handler(BaseHTTPRequestHandler):
         if route == "POST /api/integrations/morpheus/test":
             try:
                 return j(200, morpheus.test())
+            except ApiError as e:
+                return j(200, {"ok": False, "error": str(e)})
+        # ---- Bildirimler (Teams / Slack / e-posta) ----
+        if route == "GET /api/integrations/notify":
+            return j(200, notify.view())
+        if route == "POST /api/integrations/notify":
+            return j(200, notify.save(body, who["user"]))
+        if route == "POST /api/integrations/notify/test":
+            try:
+                return j(200, notify.test(body.get("channel")))
             except ApiError as e:
                 return j(200, {"ok": False, "error": str(e)})
         # ---- Red Hat Satellite: CVE etki analizi ----

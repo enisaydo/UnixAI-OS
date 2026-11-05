@@ -35,6 +35,8 @@ ACTIONS = {
     "POST /api/remediations": ("Bulgu MorpheusAI'ye gönderildi", ["server", "actionIndex"]),
     "POST /api/integrations/satellite": ("Satellite entegrasyonu kaydedildi", ["url", "user", "organization", "staleDays", "insecureTls"]),
     "POST /api/integrations/satellite/test": ("Satellite bağlantısı test edildi", []),
+    "POST /api/integrations/notify": ("Bildirim ayarları kaydedildi", ["events", "appUrl"]),
+    "POST /api/integrations/notify/test": ("Bildirim testi gönderildi", ["channel"]),
     "POST /api/cve/analyze": ("CVE etki analizi çalıştırıldı", ["cve", "verify"]),
     "POST /api/vulns/scan": ("Zafiyet torbası: filo tarandı", ["verify"]),
     "POST /api/agent/settings": ("Ajan ayarları kaydedildi", ["mode", "maxSteps", "maxHop", "allowWrite"]),

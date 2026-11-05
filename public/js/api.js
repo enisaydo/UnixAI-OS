@@ -87,6 +87,9 @@ const Api = (() => {
     satellite: () => request("/integrations/satellite"),
     saveSatellite: (c) => request("/integrations/satellite", { method: "POST", body: c }),
     testSatellite: () => request("/integrations/satellite/test", { method: "POST", body: {} }),
+    notify: () => request("/integrations/notify"),
+    saveNotify: (c) => request("/integrations/notify", { method: "POST", body: c }),
+    testNotify: (channel) => request("/integrations/notify/test", { method: "POST", body: { channel } }),
     satSummary: (refresh = false) => request(`/satellite/summary${refresh ? "?refresh=1" : ""}`),
     cveAnalyze: (cve, verify = true) => request("/cve/analyze", { method: "POST", body: { cve, verify } }),
     cveReports: () => request("/cve/reports"),
@@ -142,6 +145,7 @@ POST /api/cve/analyze            ← { cve, verify? }  → etki raporu: errata (
 GET  /api/cve/reports[/:id]      POST /api/cve/reports/:id/send ← { host }  → MorpheusAI playbook'u   GET /api/satellite/summary
 GET  /api/vulns                  → sunucu bazında zafiyet torbaları (özet, en yaygın CVE'ler)   POST /api/vulns/scan ← { verify? }
 GET  /api/vulns/:sunucu          POST /api/vulns/:sunucu/scan   POST /api/vulns/:sunucu/send ← { severities[] | advisories[] }  → MorpheusAI playbook'u
+GET  /api/integrations/notify   POST /api/integrations/notify   POST /api/integrations/notify/test ← { channel? }  → Teams/Slack/webhook/e-posta
 GET  /api/errata/:RHSA?server=&refresh=1 → errata içeriği (açıklama, çözüm, CVE, Bugzilla, paketler) + sunucuda kapatma adımları
 GET  /api/remediations[?server=] → gönderilen düzeltmeler ve MorpheusAI'deki güncel durum
      Servisler arası / MCP: Authorization: Bearer <UNIXAI_API_TOKEN>

@@ -1121,6 +1121,7 @@ async function loadSettingsPage() {
   loadLimits();
   loadMorpheus();
   loadSatellite();
+  loadNotify();
   loadPrompts();
   try {
     const [c, s] = await Promise.all([Api.connection(), Api.settings()]);
@@ -1235,7 +1236,7 @@ function applyAuthUi() {
   $("#uiCard").classList.toggle("hidden", Boolean(a.enabled));
   $("#authBanner").classList.toggle("hidden", Boolean(a.enabled));
   const readOnly = a.enabled && a.user && !a.user.isAdmin;
-  ["#limitForm", "#promptForm", "#connForm", "#sshForm", "#thrForm"].forEach((id) => {
+  ["#limitForm", "#promptForm", "#connForm", "#sshForm", "#thrForm", "#satForm", "#ntForm"].forEach((id) => {
     $(id).classList.toggle("form-disabled", Boolean(readOnly));
     $(id).title = readOnly ? "Bu ayarları yalnızca yöneticiler değiştirebilir" : "";
   });
@@ -1822,6 +1823,43 @@ async function saveSatellite() {
   checkHealth();
   loadSatellite();
   return s;
+}
+
+/* ---------------- Bildirimler ---------------- */
+async function loadNotify() {
+  try {
+    const n = await Api.notify();
+    fillForm($("#ntForm"), { ...n, email: { ...n.email, to: (n.email.to || []).join(", ") } });
+    const last = n.last ? ` · son bildirim ${ago(n.last.at)}: ${Object.entries(n.last.result || {}).map(([k, v]) => `${k} ${v === "ok" ? "✓" : "✕"}`).join(", ")}` : "";
+    $("#ntInfo").textContent = (n.active.length ? `Etkin: ${n.active.join(", ")}` : "Kapalı") + last;
+  } catch (e) { $("#ntResult").innerHTML = errorView(e); }
+}
+
+async function saveNotify() {
+  const n = await Api.saveNotify(readForm($("#ntForm")));
+  loadNotify();
+  return n;
+}
+
+function bindNotify() {
+  $("#ntForm").onsubmit = async (e) => {
+    e.preventDefault();
+    try { await saveNotify(); toast("Bildirim ayarları kaydedildi"); $("#ntResult").innerHTML = ""; }
+    catch (err) { $("#ntResult").innerHTML = errorView(err); }
+  };
+  $("#ntTest").onclick = async (e) => {
+    const b = e.currentTarget, out = $("#ntResult");
+    b.disabled = true;
+    try {
+      await saveNotify();
+      out.innerHTML = loadingView("Test bildirimi gönderiliyor…");
+      const r = await Api.testNotify();
+      out.innerHTML = r.ok ? `<div class="alert info"><b class="status-ok">✓ Gönderildi</b> — ${Object.keys(r.result).map(esc).join(", ")} kanalını kontrol edin.</div>`
+        : `<div class="alert danger"><b>✕</b> ${esc(r.error || Object.entries(r.result || {}).filter(([, v]) => v !== "ok").map(([k, v]) => `${k}: ${v}`).join(" · "))}</div>`;
+      loadNotify();
+    } catch (err) { out.innerHTML = errorView(err); }
+    finally { b.disabled = false; }
+  };
 }
 
 function bindCve() {
@@ -2773,6 +2811,7 @@ function bindEvents() {
   bindPalette();
   bindAgentPage();
   bindCve();
+  bindNotify();
   bindVulns();
   bindAudit();
   bindOplogs();

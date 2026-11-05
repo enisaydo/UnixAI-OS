@@ -206,6 +206,12 @@ def _post(payload: dict, user, extra: dict) -> dict:
         rows = _records()
         rows.append(rec)
         _save_records(rows)
+    if rec.get("status") == "generated" and not rec.get("approval") and rec.get("runnable") is not False:
+        try:
+            from . import notify
+            notify.approval_pending(rec)
+        except Exception as e:
+            print(f"[bildirim] {e}", flush=True)
     return rec
 
 
