@@ -731,3 +731,40 @@ pre.cmd { margin: 6px 0 0; padding: 8px 10px; border-radius: 8px; background: va
 .er-chip { display: inline-flex; gap: 8px; align-items: center; border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px; font-size: 12px; }
 .er-list { margin: 0; padding-left: 18px; font-size: 12.5px; line-height: 1.7; }
 .er pre.code-block { max-height: 260px; }
+
+/* Yönetim raporu */
+.rp { display: flex; flex-direction: column; gap: 16px; max-width: 1180px; }
+.rp-head { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
+.rp-brand { display: flex; gap: 12px; align-items: center; }
+.rp-brand img { width: 38px; height: 38px; }
+.rp-brand b { display: block; font: 700 20px/1.1 var(--display); }
+.rp-brand small { color: var(--muted); font-size: 13px; }
+.rp-meta { display: flex; gap: 28px; }
+.rp-meta > div { display: flex; flex-direction: column; }
+.rp-kpis { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+.rp-chart { width: 100%; height: auto; display: block; }
+.rp-grid { stroke: var(--border); stroke-width: 1; }
+.rp-th { stroke: var(--border-strong); stroke-width: 1; stroke-dasharray: 4 4; }
+.rp-ax { fill: var(--muted); font: 11px var(--sans); }
+.rp-lbl { fill: var(--text); font: 600 12px var(--sans); }
+.rp-line { fill: none; stroke: var(--primary); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.rp-dot { fill: var(--primary); stroke: var(--surface); stroke-width: 2; }
+.rp-hit { fill: transparent; }
+.rp-pt:hover .rp-dot { r: 6; }
+.rp-issues { margin: 0; padding-left: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
+.rp-foot { padding: 4px 2px 0; }
+@media print {
+  :root, :root[data-theme] { color-scheme: light; --bg: #fff; --bg-grad: none; --surface: #fff; --surface-2: #f7f9fb; --surface-3: #eef1f5; --border: #dfe4ea;
+    --border-strong: #c9d1db; --text: #141a22; --text-2: #3d4756; --muted: #687384; --primary: #0b63d6; --primary-soft: rgba(11, 99, 214, .1);
+    --ok: #1f883d; --warn: #9a6700; --crit: #cf222e; --shadow: none; }
+  body { background: #fff !important; }
+  .masthead, .sidebar, .rp-noprint, #authBanner, .toast, #toasts, .modal { display: none !important; }
+  .layout { display: block; }
+  .page { padding: 0; max-width: none; }
+  .view:not([data-view="report"]) { display: none !important; }
+  .rp { max-width: none; gap: 10px; }
+  .rp .card { break-inside: avoid; box-shadow: none; border: 1px solid #dfe4ea; }
+  .rp-break { break-before: auto; }
+  .kpi-p1 { border-color: #cf222e !important; }
+  @page { size: A4; margin: 14mm 12mm; }
+}

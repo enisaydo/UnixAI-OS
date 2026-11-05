@@ -72,7 +72,7 @@ const pctCell = (v, warn, crit) =>
 /* ================================================================== */
 /*  Router                                                             */
 /* ================================================================== */
-const ROUTES = ["dashboard", "server", "runs", "collected", "ask", "cve", "vulns", "a2a", "agent", "servers", "usage", "logs", "audit", "oplogs", "settings"];
+const ROUTES = ["dashboard", "server", "runs", "collected", "ask", "cve", "vulns", "report", "a2a", "agent", "servers", "usage", "logs", "audit", "oplogs", "settings"];
 
 function route() {
   const [name, ...rest] = location.hash.replace(/^#\/?/, "").split("/");
@@ -84,6 +84,7 @@ function route() {
   if (r === "dashboard") { loadOverview(); refreshApprovals(); loadSecCard(); }
   if (r === "cve") loadCvePage(arg);
   if (r === "vulns") loadVulnsPage(arg);
+  if (r === "report") loadReport();
   if (r === "server" && rest[0]) {
     if (rest[1]) State.sd.tab = rest[1];
     loadServer(decodeURIComponent(rest[0]));
@@ -1825,6 +1826,125 @@ async function saveSatellite() {
   return s;
 }
 
+/* ================================================================== */
+/*  Yönetim raporu (yazdırılabilir / PDF)                              */
+/* ================================================================== */
+State.rp = { days: 30, data: null };
+
+async function loadReport() {
+  $("#rpBody").innerHTML = `<div class="card">${loadingView("Rapor derleniyor…")}</div>`;
+  try { State.rp.data = await Api.report(State.rp.days); renderReport(); }
+  catch (e) { $("#rpBody").innerHTML = `<div class="card">${errorView(e)}</div>`; }
+}
+
+/** Filo ortalama sağlık puanı — tek seri çizgi (0-100), eşik bantları: 60 uyarı, 85 sağlıklı */
+function trendChart(points) {
+  if (points.length < 2) return `<p class="muted sm">Trend için en az iki günlük toplama gerekiyor.</p>`;
+  const W = 1000, H = 260, L = 34, R = 46, T = 12, B = 26;
+  const x = (i) => L + (i * (W - L - R)) / (points.length - 1), y = (v) => T + ((100 - v) * (H - T - B)) / 100;
+  const grid = [0, 25, 50, 75, 100].map((v) => `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" class="rp-grid"/><text x="${L - 6}" y="${y(v) + 4}" class="rp-ax" text-anchor="end">${v}</text>`).join("");
+  const bands = `<line x1="${L}" x2="${W - R}" y1="${y(85)}" y2="${y(85)}" class="rp-th"/><text x="${W - R + 4}" y="${y(85) + 4}" class="rp-ax">85</text>
+    <line x1="${L}" x2="${W - R}" y1="${y(60)}" y2="${y(60)}" class="rp-th"/><text x="${W - R + 4}" y="${y(60) + 4}" class="rp-ax">60</text>`;
+  const pts = points.map((p, i) => [x(i), y(p.avg ?? 0), p]);
+  const path = pts.map(([px, py], i) => `${i ? "L" : "M"}${px.toFixed(1)},${py.toFixed(1)}`).join("");
+  const step = Math.max(1, Math.ceil(points.length / 8));
+  const xl = pts.filter((_, i) => i % step === 0 || i === pts.length - 1)
+    .map(([px, , p]) => `<text x="${px}" y="${H - 6}" class="rp-ax" text-anchor="middle">${esc(p.date.slice(5).split("-").reverse().join("."))}</text>`).join("");
+  const last = pts.at(-1);
+  return `<svg class="rp-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Filo ortalama sağlık puanı, günlük">${grid}${bands}
+    <path d="${path}" class="rp-line"/>
+    ${pts.map(([px, py, p]) => `<g class="rp-pt"><circle cx="${px}" cy="${py}" r="11" class="rp-hit"/><circle cx="${px}" cy="${py}" r="4" class="rp-dot"/>
+      <title>${esc(p.date)} · ortalama ${p.avg} · ${p.servers} sunucu · ${p.critical} kritik · ${p.p1} P1</title></g>`).join("")}
+    <text x="${last[0] + 8}" y="${last[1] - 8}" class="rp-lbl">${last[2].avg}</text>${xl}</svg>`;
+}
+
+/** Sunucu özeti: "RHEL 9.4 · /u01 %97 · bellek %12 boş" */
+const rpHeadline = (h) => [h.os, h.fs_max_pct != null ? `${h.fs_max_mount || "disk"} %${h.fs_max_pct}` : "", h.mem_available_pct != null ? `bellek %${h.mem_available_pct} boş` : ""]
+  .filter(Boolean).join(" · ");
+
+function renderReport() {
+  const d = State.rp.data, f = d.fleet, a = d.automation, r = d.remediation, v = d.vulns;
+  const kpi = (label, val, sub, cls = "") => `<div class="kpi ${cls}"><div class="k-label">${label}</div><div class="k-val">${val}</div><div class="k-sub">${sub}</div></div>`;
+  const delta = f.trendDelta == null ? "dönem başına göre —" : `${f.trendDelta > 0 ? "▲" : f.trendDelta < 0 ? "▼" : "■"} ${Math.abs(f.trendDelta)} puan (dönem başına göre)`;
+  const per = `${fmtTime(d.since + "T00:00:00").split(" ")[0]} – ${fmtTime(d.generatedAt).split(" ")[0]}`;
+  $("#rpBody").innerHTML = `<article class="rp">
+    <header class="rp-head card">
+      <div class="rp-brand"><img src="favicon.svg" alt="" /><div><b>Trinity</b><small>Linux Filo Sağlığı ve Güvenlik Raporu</small></div></div>
+      <div class="rp-meta"><div><span class="muted sm">Dönem</span><b>Son ${d.days} gün</b><span class="muted sm">${esc(per)}</span></div>
+        <div><span class="muted sm">Hazırlanma</span><b>${esc(fmtTime(d.generatedAt))}</b></div></div>
+    </header>
+
+    <section class="card">
+      <div class="card-head"><h3>${icon("dashboard")}Özet</h3></div>
+      <div class="sec-kpis rp-kpis">
+        ${kpi("Filo sağlık puanı", `${f.avgScore ?? "—"}<small>/100</small>`, delta, f.avgScore != null && f.avgScore < 60 ? "kpi-p1" : "")}
+        ${kpi("Sunucu durumu", `${fmtNum(f.collected)}<small> / ${fmtNum(f.servers)}</small>`,
+          `<span class="status-ok">${f.status.OK} sağlıklı</span> · <span class="status-warn">${f.status.WARNING} uyarı</span> · <span class="status-err">${f.status.CRITICAL} kritik</span>`, f.status.CRITICAL ? "kpi-p1" : "")}
+        ${kpi("Açık P1 aksiyon", fmtNum(f.p1), f.failed ? `${f.failed} sunucu toplanamadı` : "son toplamaya göre", f.p1 ? "kpi-p1" : "")}
+        ${v ? kpi("Critical errata", fmtNum(v.counts.Critical), `${fmtNum(v.overdue)} SLA aşan · ${fmtNum(v.cves)} farklı CVE`, v.counts.Critical || v.overdue ? "kpi-p1" : "")
+          : kpi("Zafiyet taraması", "—", "Zafiyet Torbası'ndan tarama yapılmadı")}
+        ${kpi("Otomatik analiz", fmtNum(a.analyzed), `${a.runs} çalıştırma · ${a.scheduled} zamanlanmış · ${a.aiAnalyzed} GenAI`)}
+        ${kpi("Kazanılan süre", `~${fmtNum(a.hoursSaved)}<small> saat</small>`, `varsayım: sunucu başına ${a.assumptionMin} dk elle kontrol`)}
+      </div>
+    </section>
+
+    <section class="card rp-break">
+      <div class="card-head"><h3>${icon("chart")}Filo sağlık puanı trendi</h3><span class="muted sm">günlük ortalama · 85 üstü sağlıklı, 60 altı kritik</span></div>
+      ${trendChart(d.trend)}
+      ${d.trend.length ? `<details class="rp-noprint"><summary class="muted sm">Tablo olarak göster</summary><div class="table-wrap"><table class="table"><thead><tr><th>Gün</th><th class="num">Ortalama</th><th class="num">Sunucu</th><th class="num">Kritik</th><th class="num">P1</th></tr></thead><tbody>
+        ${d.trend.map((p) => `<tr><td>${esc(p.date)}</td><td class="num">${p.avg}</td><td class="num">${p.servers}</td><td class="num">${p.critical}</td><td class="num">${p.p1}</td></tr>`).join("")}</tbody></table></div></details>` : ""}
+    </section>
+
+    <div class="grid-2 rp-grid2">
+      <section class="card">
+        <div class="card-head"><h3>${icon("alert")}En düşük puanlı sunucular</h3></div>
+        ${d.worst.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Sunucu</th><th>Durum</th><th class="num">Puan</th><th class="num">P1</th></tr></thead><tbody>
+          ${d.worst.map((w) => `<tr><td><b>${esc(w.server)}</b>${w.headline ? `<div class="muted sm">${esc(rpHeadline(w.headline))}</div>` : ""}</td><td>${statusTag(w.status)}</td>
+            <td class="num">${w.score ?? "—"}</td><td class="num">${w.p1 || 0}</td></tr>`).join("")}</tbody></table></div>` : `<p class="muted">Toplanmış sunucu yok.</p>`}
+      </section>
+      <section class="card">
+        <div class="card-head"><h3>${icon("bolt")}Öne çıkan P1 sorunlar</h3></div>
+        ${d.topIssues.length ? `<ul class="rp-issues">${d.topIssues.map((i) => `<li><span class="label prio-P1">P1</span> <b>${esc(i.server)}</b> — ${esc(i.title)}</li>`).join("")}</ul>`
+          : `<p class="status-ok">${icon("check", "i i-xs")} Açık P1 sorun yok.</p>`}
+      </section>
+    </div>
+
+    ${v ? `<section class="card rp-break">
+      <div class="card-head"><h3>${icon("shield")}Güvenlik: açık zafiyetler</h3><span class="muted sm">Red Hat Satellite · son tarama ${esc(ago(v.lastScan))}</span></div>
+      <div class="sec-kpis rp-kpis">
+        ${kpi("Açığı olan sunucu", `${fmtNum(v.withVulns)}<small> / ${fmtNum(v.hosts)}</small>`, "taranan sunuculardan")}
+        ${kpi("Critical / Important", `${fmtNum(v.counts.Critical)}<small> / ${fmtNum(v.counts.Important)}</small>`, `Moderate ${fmtNum(v.counts.Moderate)} · Low ${fmtNum(v.counts.Low)}`, v.counts.Critical ? "kpi-p1" : "")}
+        ${kpi("SLA aşan", fmtNum(v.overdue), `Critical ${v.sla.Critical} g · Important ${v.sla.Important} g`, v.overdue ? "kpi-p1" : "")}
+        ${kpi("Yaması hazır", fmtNum(v.installable), "hemen uygulanabilir")}
+      </div>
+      <div class="grid-2 rp-grid2">
+        <div><div class="sub-h">Filoda en yaygın zafiyetler</div><div class="table-wrap"><table class="table"><thead><tr><th>CVE / errata</th><th>Önem</th><th class="num">Sunucu</th></tr></thead><tbody>
+          ${v.topCves.map((c) => `<tr><td class="mono sm">${esc(c.id)}</td><td>${errataSevTag(c.severity)}</td><td class="num">${c.hosts}</td></tr>`).join("") || `<tr><td colspan="3" class="muted">Yok</td></tr>`}</tbody></table></div></div>
+        <div><div class="sub-h">En çok açığı olan sunucular</div><div class="table-wrap"><table class="table"><thead><tr><th>Sunucu</th><th title="Critical · Important · Moderate · Low">C · I · M · L</th><th class="num">SLA aşan</th></tr></thead><tbody>
+          ${v.worst.map((h) => `<tr><td><b>${esc(h.key)}</b></td><td>${bagCounts({ counts: h.counts })}</td><td class="num">${h.overdue || 0}</td></tr>`).join("") || `<tr><td colspan="3" class="muted">Yok</td></tr>`}</tbody></table></div></div>
+      </div>
+    </section>` : ""}
+
+    <section class="card">
+      <div class="card-head"><h3>${icon("sparkles")}Otomatik düzeltme (MorpheusAI → AAP)</h3></div>
+      <div class="sec-kpis rp-kpis">
+        ${kpi("Playbook üretildi", fmtNum(r.sent), `${fmtNum(r.security)} güvenlik kaynaklı`)}
+        ${kpi("Onaylandı", fmtNum(r.approved), `${fmtNum(r.rejected)} reddedildi · ${fmtNum(r.pending)} bekliyor`, r.pending ? "kpi-p1" : "")}
+        ${kpi("Uygulandı", fmtNum(r.applied), "AAP'de çalıştı")}
+        ${kpi("Standart uyumu", r.avgCompliance != null ? `${r.avgCompliance}<small>/100</small>` : "—", "ortalama playbook uyum skoru")}
+      </div>
+      <p class="muted sm">Hiçbir playbook bir kişinin onayı olmadan çalışmaz; her adım İşlem Kayıtları'nda kim / ne zaman bilgisiyle tutulur.</p>
+    </section>
+    <footer class="rp-foot muted sm">Trinity · agentless RHEL sağlık analizi, GenAI ile anomali tespiti, Satellite ile CVE takibi, MorpheusAI ile onaylı otomatik düzeltme.
+      Rapor yalnızca Trinity'nin kendi kayıtlarından derlenmiştir.</footer>
+  </article>`;
+}
+
+function bindReport() {
+  $("#rpDays").onchange = (e) => { State.rp.days = +e.target.value; loadReport(); };
+  $("#rpPrint").onclick = () => window.print();
+}
+
 /* ---------------- Bildirimler ---------------- */
 async function loadNotify() {
   try {
@@ -2812,6 +2932,7 @@ function bindEvents() {
   bindAgentPage();
   bindCve();
   bindNotify();
+  bindReport();
   bindVulns();
   bindAudit();
   bindOplogs();

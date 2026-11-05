@@ -41,6 +41,7 @@
       <a href="#/ask" data-route="ask"><svg class="i" data-icon="chat"></svg>Trinity Ajanı</a>
       <a href="#/cve" data-route="cve"><svg class="i" data-icon="shield"></svg>CVE Takibi</a>
       <a href="#/vulns" data-route="vulns"><svg class="i" data-icon="alert"></svg>Zafiyet Torbası</a>
+      <a href="#/report" data-route="report"><svg class="i" data-icon="chart"></svg>Yönetim Raporu</a>
       <div class="nav-group">Yönetim</div>
       <a href="#/a2a" data-route="a2a"><svg class="i" data-icon="bolt"></svg>MorpheusAI<span class="badge" id="apprBadge" hidden></span></a>
       <a href="#/agent" data-route="agent"><svg class="i" data-icon="sparkles"></svg>Ajan &amp; MCP</a>
@@ -392,6 +393,19 @@
           </div>
         </div>
         <div id="vbBody"></div>
+      </section>
+
+      <!-- ---------- YÖNETİM RAPORU ---------- -->
+      <section class="view" data-view="report">
+        <div class="page-head rp-noprint">
+          <div><h1>Yönetim Raporu</h1><p>Filo sağlığı, trend, öne çıkan sorunlar, açık zafiyetler ve otomatik düzeltme özeti. Yöneticilere ve güvenlik ekibine
+            göndermek için <b>Yazdır / PDF</b> ile kaydedin. Yalnızca Trinity'nin kendi kayıtlarından derlenir.</p></div>
+          <div class="toolbar">
+            <select class="input" id="rpDays"><option value="7">Son 7 gün</option><option value="30" selected>Son 30 gün</option><option value="90">Son 90 gün</option></select>
+            <button class="btn primary" id="rpPrint"><svg class="i" data-icon="download"></svg>Yazdır / PDF</button>
+          </div>
+        </div>
+        <div id="rpBody"></div>
       </section>
 
       <!-- ---------- CVE TAKİBİ ---------- -->

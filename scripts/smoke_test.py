@@ -454,6 +454,11 @@ def main():
         check(len(api("/servers/rhel-db01/history")[1]) == 7, "demo: 7 günlük geçmiş (trend)")
         db = api("/servers/rhel-db01/snapshot")[1]
         check(next(f for f in db["metrics"]["filesystems"] if f["mount"] == "/u01").get("days_to_full", 0) > 0, "trend: /u01 dolma süresi hesaplandı")
+        st, rp = api("/report?days=30")[:2]
+        check(st == 200 and rp["fleet"]["collected"] >= 1 and rp["automation"]["analyzed"] >= 1 and isinstance(rp["trend"], list)
+              and "demo" not in {w["server"] for w in rp["worst"]} and not any(w["server"].startswith("rhel-") for w in rp["worst"]),
+              f"yönetim raporu: envanter sunucuları, otomasyon sayısı, trend (demo verisi hariç) {rp.get('fleet') if isinstance(rp, dict) else rp}")
+        check(api("/report?days=abc")[0] == 200, "rapor: geçersiz gün sayısı varsayılana döner")
 
         print("\nLog dosyaları (her kategori ayrı dosya)")
         ol = api("/oplogs")[1]

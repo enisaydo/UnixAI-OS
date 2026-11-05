@@ -159,6 +159,7 @@ needs-restarting, top prosesler, zombie. Root değilse ayrıcalıklı komutlar `
 | **Sunucular** | Envanter, SSH testi, public key ve hedef kurulum komutları |
 | **Token Kullanımı** | Günlük grafik, kullanıcı/tür dağılımı, limitler, CSV |
 | **AI Logları** | Token servisi ve GPT istek/cevapları (maskeli) |
+| **Yönetim Raporu** | Son 7 / 30 / 90 gün: filo sağlık puanı ve trendi, kritik sunucular, öne çıkan P1'ler, açık zafiyetler ve SLA, MorpheusAI düzeltmeleri, otomasyonla kazanılan süre. *Yazdır / PDF* ile A4 |
 | **Ayarlar** | GenAI bağlantısı, MorpheusAI, Satellite, bildirimler, SSH, zamanlama, eşikler, token limitleri, sistem mesajı |
 
 Arayüz koyu (varsayılan) ve açık temayı destekler (üst çubuktaki ay simgesi veya `?theme=light`).
@@ -170,6 +171,14 @@ duruma göre filtrelenerek görüntülenebilir. Aksiyon komutları terminal blo�
 Her gün *Ayarlar → Zamanlama*'daki saatte (varsayılan 06:30, `USAGE_TIMEZONE`) tüm etkin sunucular toplanır.
 Servis o dakikada kapalıysa sonraki 15 dakika içinde telafi edilir. Saklama süresi varsayılan 90 gün.
 *Ardından zafiyet torbasını tara* açıksa (varsayılan) toplama bitince Satellite + SSH ile zafiyet torbaları da tazelenir.
+
+## Yönetim raporu
+
+**Yönetim Raporu** ekranı yöneticiye / güvenlik ekibine gönderilecek tek sayfalık özeti üretir (`GET /api/report?days=30`):
+filo sağlık puanı ve dönem başına göre değişimi, günlük trend grafiği, en düşük puanlı sunucular, öne çıkan P1 sorunlar,
+Satellite zafiyet özeti (Critical / Important, SLA aşan, en yaygın CVE'ler), MorpheusAI → AAP düzeltme sayıları ve
+otomatik analizle kazanılan tahmini süre (varsayım raporda yazılıdır: sunucu başına 15 dk elle kontrol, `unixai/report.py`).
+*Yazdır / PDF* düğmesi menüleri gizleyip açık temada A4 çıktı verir. Envanter tanımlıysa demo verisi rapora girmez.
 
 ## Bildirimler (Teams / Slack / e-posta)
 

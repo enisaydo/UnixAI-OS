@@ -383,6 +383,10 @@ class Handler(BaseHTTPRequestHandler):
             return j(200, health(bool(qs.get("deep"))))
         if route == "GET /api/overview":
             return j(200, overview())
+        if route == "GET /api/report":
+            from unixai import report
+
+            return j(200, report.build(int(qs.get("days") or 30) if str(qs.get("days") or "30").isdigit() else 30))
 
         # ---- Sunucu envanteri ----
         if route == "GET /api/servers":
