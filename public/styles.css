@@ -772,3 +772,5 @@ pre.cmd { margin: 6px 0 0; padding: 8px 10px; border-radius: 8px; background: va
 .login-about { display: block; margin-top: 16px; text-align: center; font-size: 13px; color: var(--muted); }
 .sidebar a.nav-about { margin-top: auto; font-size: 13px; color: var(--muted); }
 .sidebar a.nav-about + .nav-foot { margin-top: 8px; }
+
+.nt-col { align-content: start; align-self: start; }

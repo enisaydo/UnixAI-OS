@@ -617,7 +617,7 @@
             zafiyet taramasında Critical / SLA aşımı bildirimi gider. Kimse Trinity'yi açmadan sorunlardan haberdar olur.</p>
           <form id="ntForm" class="form">
             <div class="grid-2">
-              <div class="form">
+              <div class="form nt-col">
                 <div class="sub-h">Webhook</div>
                 <label class="check"><input type="checkbox" name="webhook.enabled" /> Webhook'a gönder</label>
                 <label>Tip<select class="input" name="webhook.type">
@@ -627,7 +627,7 @@
                 <label>Webhook adresi<input class="input mono" name="webhook.url" type="password" autocomplete="new-password" placeholder="https://…" />
                   <small>Teams: kanal → <i>Workflows</i> → "Post to a channel when a webhook request is received". Adres gizlidir, loglara yazılmaz.</small></label>
               </div>
-              <div class="form">
+              <div class="form nt-col">
                 <div class="sub-h">E-posta (SMTP)</div>
                 <label class="check"><input type="checkbox" name="email.enabled" /> E-posta gönder</label>
                 <div class="grid-3">
