@@ -104,6 +104,9 @@ def cve_impact(a, ctx):
 
 
 def vuln_bag(a, ctx):
+    if a.get("advisory"):
+        d = satellite.erratum(a["advisory"], a.get("server") or None)
+        return {**d, "packages": d.get("packages", [])[:60], "description": (d.get("description") or "")[:6000]}
     if not a.get("server"):
         b = satellite.bags()
         return {**{k: b[k] for k in ("lastScan", "totals", "topCves", "sla")},
@@ -208,9 +211,12 @@ TOOLS = [
     {"name": "unixai_vuln_bag", "readonly": True, "handler": vuln_bag,
      "description": "Sunucu bazında zafiyet torbası: sunucuda açık olan güvenlik errata'ları (RHSA) ve CVE'ler, önem derecesi, yamanın hazır olup "
                     "olmadığı, yayından bu yana geçen gün ve SLA aşımı, son kapananlar. server verilmezse filo özeti ve en yaygın CVE'ler. "
+                    "advisory (ör. RHSA-2024:1234) verilirse errata'nın içeriği: açıklama, çözüm, CVE/Bugzilla, düzelten paketler; "
+                    "server ile birlikte verilirse o sunucuda kapatma adımları (dnf / Satellite remote execution). "
                     "Kaynak Red Hat Satellite; Satellite'ta olmayan sunucular SSH ile (dnf updateinfo). Sistemi değiştirmez.",
      "inputSchema": {"type": "object", "properties": {"server": _s("Sunucu adı (boşsa filo özeti)"),
-                                                      "refresh": {"type": "boolean", "description": "Sunucuyu şimdi yeniden tara (varsayılan: son tarama)"}}}},
+                                                      "refresh": {"type": "boolean", "description": "Sunucuyu şimdi yeniden tara (varsayılan: son tarama)"},
+                                                      "advisory": _s("Errata numarası: içeriği ve çözümü için (opsiyonel)")}}},
     {"name": "unixai_list_remediations", "readonly": True, "handler": list_remediations,
      "description": "MorpheusAI'ye gönderilen düzeltmeler ve güncel durumları.",
      "inputSchema": {"type": "object", "properties": {"server": _s("Sunucu adı filtresi")}}},

@@ -603,9 +603,12 @@ class Handler(BaseHTTPRequestHandler):
             if m.group(2) == "scan":
                 return j(200, satellite.scan_bags(who["user"], verify=body.get("verify") is not False, only=key))
             if m.group(2) == "send":
-                return j(201, satellite.send_bag(key, body.get("severities"), who["user"]))
+                return j(201, satellite.send_bag(key, body.get("severities"), who["user"], body.get("advisories")))
             b = satellite.bag(key)
             return j(200, b) if b else j(404, {"error": "Bu sunucu için zafiyet torbası yok; Zafiyet Torbası ekranından tarayın"})
+        m = re.match(r"^/api/errata/([^/]+)$", path)
+        if method == "GET" and m:
+            return j(200, satellite.erratum(unquote(m.group(1)), qs.get("server") or None, qs.get("refresh") == "1"))
         m = re.match(r"^/api/runs/([^/]+)$", path)
         if method == "GET" and m:
             r = runs.get(unquote(m.group(1)))

@@ -96,7 +96,8 @@ const Api = (() => {
     vulnScan: (verify = true) => request("/vulns/scan", { method: "POST", body: { verify } }),
     vulnBag: (key) => request(`/vulns/${enc(key)}`),
     vulnBagScan: (key, verify = true) => request(`/vulns/${enc(key)}/scan`, { method: "POST", body: { verify } }),
-    vulnBagSend: (key, severities) => request(`/vulns/${enc(key)}/send`, { method: "POST", body: { severities } }),
+    vulnBagSend: (key, severities, advisories) => request(`/vulns/${enc(key)}/send`, { method: "POST", body: { severities, advisories } }),
+    erratum: (adv, server, refresh = false) => request(`/errata/${enc(adv)}?${new URLSearchParams({ ...(server ? { server } : {}), ...(refresh ? { refresh: "1" } : {}) })}`),
     connection: () => request("/connection"),
     saveConnection: (c) => request("/connection", { method: "POST", body: c }),
     testConnection: (step) => request("/connection/test", { method: "POST", body: { step } }),
@@ -140,7 +141,8 @@ GET|POST /api/integrations/satellite  ← { url, user, password, organization, s
 POST /api/cve/analyze            ← { cve, verify? }  → etki raporu: errata (RHSA), host'lar ve durumları
 GET  /api/cve/reports[/:id]      POST /api/cve/reports/:id/send ← { host }  → MorpheusAI playbook'u   GET /api/satellite/summary
 GET  /api/vulns                  → sunucu bazında zafiyet torbaları (özet, en yaygın CVE'ler)   POST /api/vulns/scan ← { verify? }
-GET  /api/vulns/:sunucu          POST /api/vulns/:sunucu/scan   POST /api/vulns/:sunucu/send ← { severities[] }  → MorpheusAI playbook'u
+GET  /api/vulns/:sunucu          POST /api/vulns/:sunucu/scan   POST /api/vulns/:sunucu/send ← { severities[] | advisories[] }  → MorpheusAI playbook'u
+GET  /api/errata/:RHSA?server=&refresh=1 → errata içeriği (açıklama, çözüm, CVE, Bugzilla, paketler) + sunucuda kapatma adımları
 GET  /api/remediations[?server=] → gönderilen düzeltmeler ve MorpheusAI'deki güncel durum
      Servisler arası / MCP: Authorization: Bearer <UNIXAI_API_TOKEN>
 POST /mcp                        ← MCP (Streamable HTTP, JSON-RPC: initialize, tools/list, tools/call)  Authorization: Bearer <MCP token>

@@ -1951,7 +1951,7 @@ function renderVulns() {
       <div class="card">
         <div class="card-head"><h3>${icon("alert")}Filoda en yaygın zafiyetler</h3></div>
         ${l.topCves.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>CVE</th><th>Önem</th><th class="num">Sunucu</th><th class="num">Yama hazır</th><th></th></tr></thead><tbody>
-          ${l.topCves.map((x) => `<tr><td class="mono sm">${esc(x.id)}<div class="muted sm">${x.errata.map(esc).join(", ")}</div></td><td>${errataSevTag(x.severity)}</td>
+          ${l.topCves.map((x) => `<tr><td class="mono sm">${esc(x.id)}<div class="muted sm">${x.errata.map((a) => `<a href="#" data-erratum="${esc(a)}" title="İçerik ve çözüm">${esc(a)}</a>`).join(", ")}</div></td><td>${errataSevTag(x.severity)}</td>
             <td class="num"><b>${x.hosts}</b></td><td class="num">${x.installable}</td>
             <td>${x.id.startsWith("CVE-") ? `<a class="btn sm" href="#/cve/${encodeURIComponent(x.id)}">Etki analizi</a>` : ""}</td></tr>`).join("")}
         </tbody></table></div>` : `<p class="muted">Filoda açık güvenlik errata'sı yok.</p>`}
@@ -2005,10 +2005,10 @@ function renderBag(el, embedded = false) {
       ${canSend ? `<span class="muted sm">Yaması hazır errata'ları tek playbook olarak gönder (onayınızdan sonra AAP):</span>
         <button class="btn sm primary" data-bag-send="Critical,Important">${icon("bolt", "i i-xs")}Critical + Important</button>
         <button class="btn sm" data-bag-send="Critical,Important,Moderate,Low">Tümü</button>` : ""}</div>` : ""}
-    <div class="card-head"><div class="sub-h">Açık güvenlik errata'ları</div>
+    <div class="card-head"><div class="sub-h">Açık güvenlik errata'ları <span class="muted sm">— içeriği ve çözümü için satıra tıklayın</span></div>
       <div class="seg">${seg("all", "Tümü", b.errata.length)}${BAG_SEVS.map((s) => seg(s, s, sm.counts?.[s] || 0)).join("")}${seg("overdue", "SLA aşan", sm.overdue || 0)}${seg("cv", "Yaması yok", b.errata.filter((e) => !e.installable).length)}</div></div>
     ${rows.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Errata</th><th>Önem</th><th>CVE</th><th>Yayın</th><th class="num">Açık gün</th><th>Yama</th><th>Torbaya giriş</th></tr></thead><tbody>
-      ${rows.map((e) => `<tr><td class="mono">${esc(e.errataId)}${e.title ? `<div class="muted sm">${esc(e.title)}</div>` : ""}${e.packages?.length ? `<div class="muted sm mono">${e.packages.map(esc).join(", ")}</div>` : ""}</td>
+      ${rows.map((e) => `<tr class="clickable" data-erratum="${esc(e.errataId)}" title="İçerik ve çözüm"><td class="mono"><a href="#" data-erratum="${esc(e.errataId)}">${esc(e.errataId)}</a>${e.title ? `<div class="muted sm">${esc(e.title)}</div>` : ""}${e.packages?.length ? `<div class="muted sm mono">${e.packages.map(esc).join(", ")}</div>` : ""}</td>
         <td>${errataSevTag(e.severity)}</td>
         <td class="mono sm">${e.cves.slice(0, 8).map((c) => `<a href="#/cve/${encodeURIComponent(c)}" title="Filo etki analizi">${esc(c)}</a>`).join("<br>") || "—"}${e.cves.length > 8 ? `<div class="muted">+${e.cves.length - 8}</div>` : ""}</td>
         <td class="sm">${esc(e.issued || "—")}</td>
@@ -2022,11 +2022,85 @@ function renderBag(el, embedded = false) {
   </div>`;
 }
 
+/** Errata içeriği (açıklama, çözüm, CVE, paketler) ve — sunucu verildiyse — o sunucuda kapatma adımları */
+async function erratumModal(adv, server, refresh = false) {
+  modal(adv, `<div class="er">${loadingView("Errata içeriği okunuyor…")}</div>`, { wide: true });
+  let d;
+  try { d = await Api.erratum(adv, server, refresh); }
+  catch (e) { $("#modalBody").innerHTML = errorView(e); return; }
+  if ($("#modalTitle").textContent !== adv) return; // kullanıcı bu arada başka pencere açtı
+  const h = d.host, cmds = [];
+  const block = (title, body) => body ? `<div class="er-sec"><div class="sub-h">${title}</div>${body}</div>` : "";
+  const para = (t) => t ? `<div class="er-text">${esc(t)}</div>` : "";
+  const steps = (h?.steps || []).map((s) => {
+    cmds.push(s.commands.join("\n"));
+    return `<div class="er-step"><div class="er-step-h"><b>${esc(s.title)}</b><button class="btn link sm" data-er-copy="${cmds.length - 1}">Kopyala</button></div>
+      <pre class="code-block">${esc(s.commands.join("\n"))}</pre></div>`;
+  }).join("");
+  const canSend = h && h.installable && morConfigured();
+  $("#modalBody").innerHTML = `<div class="er">
+    <div class="er-head">
+      <div>${errataSevTag(d.severity)} ${d.type ? `<span class="label">${esc(d.type)}</span>` : ""} ${d.rebootSuggested ? `<span class="label gold">yeniden başlatma önerilir</span>` : ""}
+        <span class="label">${d.source === "ssh" ? "kaynak: dnf (SSH)" : "kaynak: Satellite"}</span></div>
+      <h3>${esc(d.title || adv)}</h3>
+      <div class="muted sm">Yayın ${esc(d.issued || "—")}${d.updated && d.updated !== d.issued ? ` · güncelleme ${esc(d.updated)}` : ""}
+        ${d.hostsApplicable != null ? ` · Satellite'ta ${fmtNum(d.hostsApplicable)} host etkileniyor (${fmtNum(d.hostsAvailable ?? 0)} yaması hazır)` : ""}
+        ${d.cachedAt ? ` · içerik ${esc(ago(d.cachedAt))} alındı` : ""}</div>
+      <div class="toolbar mt-s"><a class="btn sm" href="${esc(d.links.redhat)}" target="_blank" rel="noopener">Red Hat errata sayfası</a>
+        ${d.links.satellite ? `<a class="btn sm" href="${esc(d.links.satellite)}" target="_blank" rel="noopener">Satellite'ta aç</a>` : ""}
+        <button class="btn sm link" data-er-refresh>${icon("refresh", "i i-xs")}İçeriği yenile</button></div>
+    </div>
+    ${d.warning ? `<div class="alert warn">${esc(d.warning)}</div>` : ""}
+    ${h ? `<div class="er-host ${h.overdue ? "late" : ""}">
+      <div class="sub-h">${icon("servers", "i i-xs")}${esc(h.key)} için çözüm</div>
+      <div class="er-facts">
+        <span>${h.installable === false ? `<span class="label gold">yama content view'de yok</span>` : h.installable ? `<span class="label green">yama hazır</span>` : `<span class="label">yama durumu bilinmiyor</span>`}</span>
+        ${h.age != null ? `<span>yayından bu yana <b>${h.age} gün</b>${h.sla ? ` / SLA ${h.sla} g` : ""}${h.overdue ? ` <b class="status-err">— SLA aşıldı</b>` : ""}</span>` : ""}
+        ${h.firstSeen ? `<span>torbaya giriş ${esc(h.firstSeen.slice(0, 10))}</span>` : ""}
+        ${h.packages.length ? `<span>güncellenecek: <span class="mono">${h.packages.map(esc).join(", ")}</span></span>` : ""}
+      </div>
+      ${h.note ? `<div class="alert warn">${esc(h.note)}</div>` : ""}
+      ${steps}
+      ${canSend ? `<div class="toolbar"><button class="btn sm primary" data-er-send>${icon("bolt", "i i-xs")}Bu errata için MorpheusAI playbook'u üret</button>
+        <span class="muted sm">onayınızdan sonra AAP'de çalışır</span></div>` : ""}
+    </div>` : ""}
+    ${block("Özet", para(d.summary))}
+    ${block("Zafiyetin içeriği (Red Hat açıklaması)", para(d.description) || `<p class="muted">Açıklama yok.</p>`)}
+    ${block("Red Hat'in önerdiği çözüm", para(d.solution) || (h ? "" : `<p class="muted">Ayrı bir çözüm metni yok; errata'daki paketleri güncellemek açığı kapatır: <code>dnf update --advisory=${esc(adv)}</code></p>`))}
+    ${block(`CVE · ${d.cves.length}`, d.cves.length ? `<div class="er-chips">${d.cves.map((c) => `<span class="er-chip mono"><a href="${esc(d.cveLinks[c])}" target="_blank" rel="noopener" title="Red Hat CVE sayfası: CVSS, etkilenen ürünler">${esc(c)}</a>
+      <a class="muted" href="#/cve/${encodeURIComponent(c)}" data-er-close title="Filo etki analizi">filo ↗</a></span>`).join("")}</div>` : "")}
+    ${block(`Bugzilla · ${d.bugs.length}`, d.bugs.length ? `<ul class="er-list">${d.bugs.map((b) => `<li><a class="mono" href="${esc(b.url || `https://bugzilla.redhat.com/show_bug.cgi?id=${b.id}`)}" target="_blank" rel="noopener">${esc(b.id)}</a> ${esc(b.title)}</li>`).join("")}</ul>` : "")}
+    ${block(`Düzelten paketler · ${d.packages.length}`, d.packages.length ? `<details><summary class="muted sm">Errata'daki tüm paket sürümleri (tüm mimariler)</summary><pre class="code-block">${esc(d.packages.join("\n"))}</pre></details>` : "")}
+    ${block("Modül akışları", d.moduleStreams?.length ? `<span class="mono sm">${d.moduleStreams.map(esc).join(", ")}</span>` : "")}
+  </div>`;
+  const box = $("#modalBody");
+  box.onclick = async (e) => {
+    const cp = e.target.closest("[data-er-copy]");
+    if (cp) return copyText(cmds[+cp.dataset.erCopy]);
+    if (e.target.closest("[data-er-close]")) return closeModal();
+    if (e.target.closest("[data-er-refresh]")) return erratumModal(adv, server, true);
+    const sd = e.target.closest("[data-er-send]");
+    if (!sd) return;
+    sd.disabled = true;
+    try {
+      const rec = await Api.vulnBagSend(h.key, [], [adv]);
+      toast(`MorpheusAI playbook'u üretti (uyum ${rec.score ?? "—"}) — onayınızı bekliyor`);
+      refreshApprovals();
+      closeModal();
+    } catch (err) { toast(err.message, true); sd.disabled = false; }
+  };
+}
+
 function bindVulns() {
   $("#vbScan").onclick = (e) => scanVulns(e.currentTarget);
   const host = (el) => el.closest("#vbBody") ? $("#vbBody") : $("#sdPane");
   document.addEventListener("click", async (e) => {
     if (!e.target.closest("#vbBody, #sdPane")) return;
+    const er = e.target.closest("[data-erratum]");
+    if (er && !e.target.closest("a:not([data-erratum])")) {
+      e.preventDefault();
+      return erratumModal(er.dataset.erratum, er.closest("tr")?.dataset.erratum && State.vb.bag ? State.vb.bag.key : null);
+    }
     const r = e.target.closest("[data-bag]");
     if (r && !e.target.closest("a")) { location.hash = `#/vulns/${encodeURIComponent(r.dataset.bag)}`; return; }
     const el = host(e.target), embedded = el.id === "sdPane";

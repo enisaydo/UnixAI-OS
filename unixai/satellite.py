@@ -599,15 +599,18 @@ def bag(key: str):
     return {**h, "sla": SLA_DAYS}
 
 
-def send_bag(key: str, severities=None, user=None) -> dict:
-    """Torbadaki yaması hazır güvenlik errata'larını (seçilen önem dereceleri) tek bulgu olarak MorpheusAI'ye gönderir"""
+def send_bag(key: str, severities=None, user=None, advisories=None) -> dict:
+    """Torbadaki yaması hazır güvenlik errata'larını (seçilen önem dereceleri veya belirli errata'lar) tek bulgu olarak MorpheusAI'ye gönderir"""
     from . import inventory, morpheus
 
     b = bag(key)
     if not b:
         raise ApiError("Bu sunucu için zafiyet torbası yok; önce tarayın", 404)
     sev = [s for s in (severities or []) if s in SEVERITIES] or ["Critical", "Important"]
-    pick = [e for e in b.get("errata", []) if e["installable"] and e["severity"] in sev]
+    only = {str(a).upper() for a in (advisories or [])}
+    pick = [e for e in b.get("errata", []) if e["installable"] and (e["errataId"] in only if only else e["severity"] in sev)]
+    if only and not pick:
+        raise ApiError(f"{', '.join(sorted(only))}: bu sunucuda yaması hazır değil (content view'de yok veya zaten kapanmış)")
     if not pick:
         cv = any(not e["installable"] and e["severity"] in sev for e in b.get("errata", []))
         raise ApiError(f"{'/'.join(sev)} önem derecesinde yaması hazır errata yok"
@@ -620,7 +623,7 @@ def send_bag(key: str, severities=None, user=None) -> dict:
     name = b.get("inventoryName") or _short(b["name"])
     src = f"Satellite {urlsplit(get()['url']).netloc}" if b.get("source") == "satellite" else "SSH / dnf updateinfo"
     finding = {
-        "title": f"{len(adv)} güvenlik güncellemesini uygula ({'/'.join(sev)})",
+        "title": f"{adv[0]} güvenlik güncellemesini uygula" if only and len(adv) == 1 else f"{len(adv)} güvenlik güncellemesini uygula ({'/'.join(sev)})",
         "priority": "P1" if top in ("Critical", "Important") else "P2",
         "severity": "critical" if top == "Critical" else "high" if top == "Important" else "medium",
         "category": "security",
@@ -642,3 +645,139 @@ def send_bag(key: str, severities=None, user=None) -> dict:
             h["remediation"] = {"id": rec["id"], "status": rec.get("status"), "url": rec.get("url"), "sentAt": iso_now(), "sentBy": user, "advisories": adv}
             write_json(BAGS, store)
     return rec
+
+
+# ------------------------------------------------------------------
+#  Errata içeriği: açıklama, çözüm, CVE / Bugzilla, düzelten paketler
+#    Satellite: GET /katello/api/errata?search=errata_id = RHSA-…  →  GET /katello/api/errata/:id
+#    Satellite'ta yoksa: dnf updateinfo info RHSA-… (SSH)
+#    Errata içeriği yayından sonra nadiren değişir; data/errata_cache.json'da 7 gün tutulur.
+# ------------------------------------------------------------------
+ERRATA_CACHE = "errata_cache.json"
+CACHE_DAYS = 7
+
+
+def _text(v) -> str:
+    return re.sub(r"\n{3,}", "\n\n", str(v or "").replace("\r\n", "\n")).strip()
+
+
+def _sat_erratum(adv: str):
+    rows = _call("/katello/api/errata", {"search": f"errata_id = {adv}", "per_page": 5}, kind="satellite-errata").get("results") or []
+    row = next((e for e in rows if e.get("errata_id") == adv), None)
+    if not row:
+        return None
+    d = _call(f"/katello/api/errata/{row['id']}", kind="satellite-erratum")
+    return {"advisory": adv, "satelliteId": row["id"], "source": "satellite", "title": d.get("title"), "type": d.get("type"),
+            "severity": _sev(d.get("severity")), "issued": (d.get("issued") or "")[:10] or None, "updated": (d.get("updated") or "")[:10] or None,
+            "rebootSuggested": bool(d.get("reboot_suggested")), "summary": _text(d.get("summary")), "description": _text(d.get("description")),
+            "solution": _text(d.get("solution")),
+            "cves": sorted({c.get("cve_id") for c in (d.get("cves") or []) if isinstance(c, dict) and c.get("cve_id")}),
+            "bugs": [{"id": str(b.get("bug_id")), "title": b.get("title") or "", "url": b.get("href")} for b in (d.get("bugs") or []) if isinstance(b, dict) and b.get("bug_id")][:100],
+            "packages": sorted({p for p in (d.get("packages") or []) if isinstance(p, str)})[:400],
+            "moduleStreams": [f"{m.get('name')}:{m.get('stream')}" for m in (d.get("module_streams") or []) if isinstance(m, dict)][:50],
+            "hostsApplicable": d.get("hosts_applicable_count"), "hostsAvailable": d.get("hosts_available_count")}
+
+
+def _parse_updateinfo(adv: str, out: str):
+    """dnf updateinfo info çıktısı: '  Anahtar : değer' satırları, devamı '         : …'"""
+    lines, title, fields, cur = out.splitlines(), None, {}, None
+    for i, line in enumerate(lines):
+        if line.startswith("====") and i + 2 < len(lines) and lines[i + 2].startswith("===="):
+            title = lines[i + 1].strip()
+            continue
+        m = re.match(r"^\s*([A-Za-z][A-Za-z ]*?)\s*:\s?(.*)$", line)
+        c = re.match(r"^\s+:\s?(.*)$", line)
+        if c and cur:
+            fields[cur].append(c.group(1))
+        elif m:
+            cur = m.group(1).strip().lower()
+            fields.setdefault(cur, []).append(m.group(2))
+    if not fields.get("update id") and not title:
+        return None
+    one = lambda k: (fields.get(k) or [""])[0].strip() or None
+    cves = sorted({c for line in fields.get("cves", []) for c in re.findall(r"CVE-\d{4}-\d{4,7}", line)})
+    bugs = [{"id": m.group(1), "title": m.group(2).strip(), "url": f"https://bugzilla.redhat.com/show_bug.cgi?id={m.group(1)}"}
+            for m in (re.match(r"^\s*(\d+)\s*-\s*(.*)$", l) for l in fields.get("bugs", [])) if m][:100]
+    return {"advisory": adv, "source": "ssh", "title": title, "type": one("type"), "severity": _sev(one("severity")),
+            "issued": (one("issued") or "")[:10] or None, "updated": (one("updated") or "")[:10] or None,
+            "rebootSuggested": bool(re.search(r"reboot", " ".join(fields.get("reboot", [])), re.I)) or None,
+            "summary": "", "description": _text("\n".join(fields.get("description", []))), "solution": "", "cves": cves, "bugs": bugs,
+            "packages": [], "moduleStreams": []}
+
+
+def _ssh_erratum(server: dict, adv: str):
+    from . import collector, settings
+
+    ssh = settings.get()["ssh"]
+    cmd = f"export LC_ALL=C; (dnf -q updateinfo info {adv} 2>/dev/null || yum -q updateinfo info {adv} 2>/dev/null); echo __rc=$?"
+    r = collector.run_ssh(server, {**ssh, "commandTimeout": min(ssh["commandTimeout"], 120)}, cmd, purpose=f"Errata içeriği: {adv}")
+    if r["timedOut"] or (r["code"] == 255 and "__rc=" not in r["stdout"]):
+        raise ApiError("SSH: " + ("zaman aşımı" if r["timedOut"] else collector.explain(r["stderr"], server, ssh)), 502)
+    return _parse_updateinfo(adv, r["stdout"].split("__rc=")[0])
+
+
+def _host_fix(adv: str, d: dict, b) -> dict:
+    """Bu errata'yı bu sunucuda kapatmanın somut adımları"""
+    host = (b or {}).get("name")
+    e = next((x for x in (b or {}).get("errata", []) if x["errataId"] == adv), None) or {}
+    reboot = bool(d.get("rebootSuggested") or e.get("rebootSuggested"))
+    steps = [{"title": "Sunucuda (dnf)", "commands": [f"dnf -y update --advisory={adv}"] + (["needs-restarting -r || systemctl reboot"] if reboot else [])},
+             {"title": "Önce neyin değişeceğini görmek için", "commands": [f"dnf updateinfo info {adv}", f"dnf -q check-update --advisory={adv}"]}]
+    if b and b.get("satellite"):
+        steps.append({"title": "Satellite'tan (Remote Execution)", "commands": [
+            f'hammer job-invocation create --feature katello_errata_install --inputs errata={adv} --search-query "name = {host}"']})
+    steps.append({"title": "Doğrulama", "commands": [f"dnf -q updateinfo list --advisory={adv}   # boş dönmeli"]
+                  + ([f"rpm -q --changelog {e['packages'][0]} | grep -m3 CVE-"] if e.get("packages") else [])})
+    return {"installable": e.get("installable"), "rebootSuggested": reboot, "packages": e.get("packages") or [], "firstSeen": e.get("firstSeen"),
+            "age": _days_since(e.get("issued") or d.get("issued")), "overdue": _overdue({**d, **e}) if (e or d).get("severity") else False,
+            "sla": SLA_DAYS.get(e.get("severity") or d.get("severity")), "steps": steps,
+            "note": None if e.get("installable") is not False else "Yama bu sunucunun content view'inde yok: Satellite'ta content view'i publish edip "
+                                                                   "lifecycle ortamına promote edin (veya errata'yı incremental update ile ekleyin), sonra yukarıdaki adımları uygulayın."}
+
+
+def erratum(adv: str, key=None, refresh: bool = False) -> dict:
+    """Errata'nın içeriği (açıklama, çözüm, CVE, paketler) + istenirse belirli sunucu için düzeltme adımları"""
+    from . import inventory
+
+    adv = str(adv or "").strip().upper()
+    if not ADVISORY_RE.match(adv):
+        raise ApiError("Geçersiz errata numarası (ör. RHSA-2024:1234)")
+    b = bag(key) if key else None
+    with _lock:
+        cache = read_json(ERRATA_CACHE, {}) or {}
+    d = cache.get(adv)
+    if refresh or not d or (_days_since(d.get("cachedAt")) or 0) >= CACHE_DAYS:
+        d, err = None, None
+        if is_configured():
+            try:
+                d = _sat_erratum(adv)
+            except ApiError as e:
+                err = str(e)
+        srv = inventory.get((b or {}).get("inventoryName") or key or "") if not d else None
+        if not d and srv:
+            try:
+                d = _ssh_erratum(srv, adv)
+            except ApiError as e:
+                err = str(e)
+        if not d:
+            old = cache.get(adv)
+            if old:
+                d = {**old, "warning": f"Güncel içerik alınamadı, önbellekteki gösteriliyor: {err}" if err else None}
+            else:
+                raise ApiError(err or f"{adv} Satellite'ta bulunamadı" + ("" if is_configured() else "; Satellite yapılandırılmamış ve sunucu SSH ile sorgulanamadı"), 404)
+        else:
+            d["cachedAt"] = iso_now()
+            with _lock:
+                cache = read_json(ERRATA_CACHE, {}) or {}
+                cache[adv] = d
+                if len(cache) > 1000:
+                    cache = dict(sorted(cache.items(), key=lambda kv: kv[1].get("cachedAt") or "")[-800:])
+                write_json(ERRATA_CACHE, cache)
+    c = get()
+    links = {"redhat": f"https://access.redhat.com/errata/{adv}"}
+    if d.get("satelliteId") and c.get("url"):
+        links["satellite"] = f"{c['url']}/errata/{d['satelliteId']}"
+    out = {**d, "links": links, "cveLinks": {cv: f"https://access.redhat.com/security/cve/{cv}" for cv in d.get("cves", [])}}
+    if b:
+        out["host"] = {"key": b["key"], "name": b.get("name"), "source": b.get("source"), **_host_fix(adv, d, b)}
+    return out

@@ -114,6 +114,12 @@ CVE'leri tutar. *Tüm filoyu tara* (veya tek sunucuda *Yeniden tara*):
 - Filo görünümü: sunucu başına C·I·M·L sayıları, SLA aşan, yaması hazır; filoda en yaygın CVE'ler (→ *Etki analizi*).
 - *MorpheusAI'ye gönder*: yaması hazır Critical+Important (veya tümü) errata'lar tek bulgu olarak gider
   (`dnf -y update --advisory=… --advisory=…`) → playbook → onay → AAP. CSV dışa aktarma güvenlik ekibi için.
+- **Errata detayı** (torbada satıra tıklayın): zafiyetin içeriği (Red Hat açıklaması ve özeti), Red Hat'in çözüm metni, CVE'ler
+  (Red Hat CVE sayfası + filo etki analizi), Bugzilla kayıtları, düzelten paket sürümleri; o sunucu için çözüm adımları
+  (`dnf update --advisory=…`, gerekirse reboot, Satellite Remote Execution `hammer job-invocation …`, doğrulama) ve
+  yama content view'de yoksa publish/promote notu. Tek errata için de MorpheusAI playbook'u üretilebilir.
+  Kaynak `GET /katello/api/errata/:id`; Satellite'ta yoksa SSH ile `dnf updateinfo info`. İçerik `data/errata_cache.json`'da 7 gün tutulur
+  (*İçeriği yenile* ile zorlanır). API: `GET /api/errata/RHSA-…?server=…`; ajan aracı `unixai_vuln_bag` → `advisory`.
 
 Torbalar `data/vuln_bags.json`'da. Ajan ve MCP istemcileri `unixai_vuln_bag` aracıyla okur (server boşsa filo özeti).
 

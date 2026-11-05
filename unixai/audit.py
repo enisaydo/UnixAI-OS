@@ -89,6 +89,8 @@ def describe(method: str, path: str, body) -> tuple:
                 detail["mode"] = "run" if body.get("mode") == "run" else "check"
             if frag == "/send" and body.get("severities"):
                 detail["severities"] = body.get("severities")
+            if frag == "/send" and body.get("advisories"):
+                detail["advisories"] = body.get("advisories")
             if frag == "/diagnostic":
                 detail.update(check=body.get("check"), params=body.get("params"))
             return label, detail

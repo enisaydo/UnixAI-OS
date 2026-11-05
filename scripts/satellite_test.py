@@ -85,6 +85,8 @@ class Sat(BaseHTTPRequestHandler):
         if u.path == "/katello/api/organizations":
             return self.reply(200, self.page([{"id": 1, "name": "Kurum", "label": "kurum"}], q))
         if u.path == "/katello/api/errata":
+            if search.startswith("errata_id = "):
+                return self.reply(200, self.page([x for x in (ERRATUM, ERR_CRIT) if x["errata_id"] == search[12:]], q))
             if q.get("host_id"):
                 return self.reply(200, self.page(host_errata(q["host_id"][0], q.get("errata_restrict_installable") == ["true"]), q))
             if "cve = CVE-2024-6387" in search:
@@ -95,6 +97,14 @@ class Sat(BaseHTTPRequestHandler):
         if u.path == "/katello/api/errata/e-uuid-1":
             return self.reply(200, {**ERRATUM, "reboot_suggested": False,
                                     "packages": ["openssh-8.7p1-38.el9_4.1.x86_64", "openssh-server-8.7p1-38.el9_4.1.x86_64"]})
+        if u.path == "/katello/api/errata/e-uuid-2":
+            seen["detail"] = seen.get("detail", 0) + 1
+            return self.reply(200, {**ERR_CRIT, "type": "security", "updated": "2020-01-05", "summary": "An update for kernel is now available.",
+                                    "description": "The kernel packages contain the Linux kernel.\r\n\r\nSecurity Fix(es):\r\n* kernel: use-after-free (CVE-2020-0001)",
+                                    "solution": "For details on how to apply this update, refer to https://access.redhat.com/articles/11258\n\nThe system must be rebooted.",
+                                    "bugs": [{"bug_id": 1780000, "title": "CVE-2020-0001 kernel: use-after-free", "href": "https://bugzilla.redhat.com/show_bug.cgi?id=1780000"}],
+                                    "packages": ["kernel-4.18.0-147.3.1.el8_1.x86_64", "kernel-core-4.18.0-147.3.1.el8_1.x86_64"],
+                                    "hosts_applicable_count": 1, "hosts_available_count": 0})
         if u.path == "/api/hosts":
             if search == "applicable_errata = RHSA-2024:4312":
                 return self.reply(200, self.page([HOSTS[0], HOSTS[1]], q))
@@ -261,6 +271,34 @@ try:
     check(b2["errata"][0]["firstSeen"] == first and b2.get("remediation", {}).get("id") == "rem-1", "ilk görülme tarihi ve gönderim kaydı korundu")
     check(api("GET", "/vulns")[1]["totals"]["hosts"] == 6, "tek sunucu taraması filo listesini bozmaz")
 
+    print("Errata içeriği ve çözümü")
+    st, d = api("GET", "/errata/RHSA-2020:0001?server=web01")
+    check(st == 200 and d["title"] == "Critical: kernel security update" and "Security Fix(es):" in d["description"] and "\r" not in d["description"], f"açıklama Satellite'tan {st} {d.get('error', '')}")
+    check("rebooted" in d["solution"] and d["bugs"][0]["id"] == "1780000" and d["cves"] == ["CVE-2020-0001", "CVE-2020-0002"], "çözüm, Bugzilla, CVE'ler")
+    check(d["links"]["redhat"] == "https://access.redhat.com/errata/RHSA-2020:0001" and d["links"]["satellite"].endswith("/errata/e-uuid-2"), "Red Hat ve Satellite bağlantıları")
+    h = d.get("host") or {}
+    check(h.get("key") == "web01" and h["installable"] is False and h["overdue"] and h["note"] and "promote" in h["note"], "web01: yama content view'de yok → promote notu, SLA aşıldı")
+    cmds = [c for s_ in h.get("steps", []) for c in s_["commands"]]
+    check("dnf -y update --advisory=RHSA-2020:0001" in cmds and any("needs-restarting" in c for c in cmds) and any("hammer job-invocation" in c and "web01.kurum.local" in c for c in cmds),
+          "adımlar: dnf, reboot, Satellite remote execution")
+    n = seen.get("detail", 0)
+    api("GET", "/errata/RHSA-2020:0001")
+    check(seen.get("detail", 0) == n, "ikinci okuma önbellekten (Satellite'a gidilmez)")
+    api("GET", "/errata/RHSA-2020:0001?refresh=1")
+    check(seen.get("detail", 0) == n + 1, "refresh=1 Satellite'tan yeniden okur")
+    st, d = api("GET", "/errata/RHSA-2021:9999?server=vuln9")
+    check(st == 200 and d["source"] == "ssh" and d["title"] == "Moderate: curl security update" and d["severity"] == "Moderate", f"Satellite'ta olmayan errata SSH'tan {st} {d.get('error', '')}")
+    check(d["cves"] == ["CVE-2021-22876", "CVE-2021-22898"] and d["bugs"][0]["id"] == "1918692" and "Leak of authentication" in d["description"], "dnf updateinfo info ayrıştırıldı")
+    check(api("GET", "/errata/RHSA-2021:8888")[0] == 404, "sunucu verilmeden bilinmeyen errata 404")
+    check(api("GET", "/errata/rm%20-rf")[0] == 400, "geçersiz errata numarası reddedilir")
+    seen["fixed"] = False
+    api("POST", "/vulns/web01/scan", {})
+    st, e = api("POST", "/vulns/web01/send", {"advisories": ["RHSA-2020:0001"]})
+    check(st == 400 and "hazır değil" in e.get("error", ""), "tek errata: yaması hazır değilse gönderilmez")
+    st, rec = api("POST", "/vulns/web01/send", {"advisories": ["RHSA-2024:4312"]})
+    f = seen["morpheus"][-1]["finding"]
+    check(st == 201 and f["commands"] == ["dnf -y update --advisory=RHSA-2024:4312"] and f["title"].startswith("RHSA-2024:4312"), f"tek errata gönderildi: {f.get('title')}")
+
     print("Güvenlik")
     logs = "".join(x.read_text(encoding="utf-8") for x in (tmp / "logs").rglob("*.jsonl"))
     check("secret-pat" not in logs and "dHJpbml0eS1ybzpzZWNyZXQtcGF0" not in logs, "parola / Basic değeri loglara yazılmadı")
@@ -274,7 +312,9 @@ try:
     check("unixai_cve_impact" in T.BY_NAME and T.BY_NAME["unixai_cve_impact"]["readonly"], "ajan/MCP aracı unixai_cve_impact (salt-okunur)")
     check(T.BY_NAME.get("unixai_vuln_bag", {}).get("readonly"), "ajan/MCP aracı unixai_vuln_bag (salt-okunur)")
     tb = T.vuln_bag({"server": "web01"}, {})
-    check(tb.get("summary", {}).get("errata") == 1 and tb["recentlyClosed"][0]["errataId"] == "RHSA-2024:4312", "araç sunucu torbasını döndürür")
+    check(tb.get("summary", {}).get("errata") == 2 and tb["recentlyClosed"][0]["errataId"] == "RHSA-2024:4312", "araç sunucu torbasını döndürür")
+    te = T.vuln_bag({"advisory": "RHSA-2020:0001", "server": "web01"}, {})
+    check("Security Fix(es)" in te.get("description", "") and te.get("host", {}).get("steps"), "araç advisory ile errata içeriği ve adımları döndürür")
 finally:
     srv.terminate()
     try:

@@ -717,3 +717,17 @@ pre.cmd { margin: 6px 0 0; padding: 8px 10px; border-radius: 8px; background: va
 #sdPane > .card { border: 0; box-shadow: none; padding: 0; background: none; }
 @media (max-width: 1100px) { .vb-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } .vb-grid { grid-template-columns: 1fr; } }
 @media (max-width: 640px) { .vb-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* Errata detayı (zafiyetin içeriği ve çözümü) */
+.er { display: flex; flex-direction: column; gap: 14px; }
+.er-head h3 { margin: 6px 0 4px; font-size: 16px; }
+.er-sec .sub-h { margin-bottom: 6px; }
+.er-text { white-space: pre-wrap; word-break: break-word; font-size: 13px; line-height: 1.6; color: var(--text-2); max-height: 360px; overflow: auto; }
+.er-host { border: 1px solid var(--border); border-left: 3px solid var(--ok); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; background: var(--surface-3); }
+.er-host.late { border-left-color: var(--crit); }
+.er-facts { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 12.5px; }
+.er-step-h { display: flex; justify-content: space-between; align-items: center; font-size: 12.5px; margin-bottom: 4px; }
+.er-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.er-chip { display: inline-flex; gap: 8px; align-items: center; border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px; font-size: 12px; }
+.er-list { margin: 0; padding-left: 18px; font-size: 12.5px; line-height: 1.7; }
+.er pre.code-block { max-height: 260px; }
