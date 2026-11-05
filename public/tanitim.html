@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<!--ARTIFACT-HEAD-->
+<title>Trinity</title>
+<meta name="claude:viewport-fit-sides" content="cover" />
+<meta name="description" content="Trinity: RHEL filosu için agentless sağlık analizi, GenAI ile anomali tespiti, Satellite ile zafiyet takibi ve onaylı Ansible düzeltmesi." />
+<link rel="icon" href="favicon.svg" type="image/svg+xml" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Red+Hat+Text:wght@400;500;600&family=Red+Hat+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<!--/ARTIFACT-HEAD-->
+<style>
+/* Düzen: sabah operasyon günlüğü — hero (tez + sabah bildirimi), zaman akışı, ekran görüntülü yetenekler, kontrol bandı, roller, kurulum */
+:root {
+  color-scheme: dark;
+  --bg: #0b0f14;
+  --panel: #121822;
+  --panel-2: #18202c;
+  --line: #243040;
+  --ink: #e8ecf1;
+  --ink-2: #aeb8c5;
+  --ink-3: #7c8898;
+  --red: #ee0000;
+  --red-soft: rgba(238, 0, 0, .12);
+  --blue: #5aa2ff;
+  --ok: #3fb950; --warn: #d4a72c; --crit: #f85149;
+  --shadow: 0 1px 0 rgba(255, 255, 255, .03) inset, 0 18px 40px rgba(0, 0, 0, .35);
+  --f-display: "Red Hat Display", "Segoe UI", system-ui, sans-serif;
+  --f-body: "Red Hat Text", "Segoe UI", system-ui, sans-serif;
+  --f-mono: "Red Hat Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --wrap: 1160px;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+    --bg: #f3f5f8; --panel: #ffffff; --panel-2: #f7f9fb; --line: #dce2ea; --ink: #121821; --ink-2: #465163; --ink-3: #6b7686;
+    --red: #d40000; --red-soft: rgba(212, 0, 0, .08); --blue: #0b63d6; --ok: #1f883d; --warn: #9a6700; --crit: #cf222e;
+    --shadow: 0 1px 2px rgba(16, 24, 40, .06), 0 14px 30px rgba(16, 24, 40, .08);
+  }
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f3f5f8; --panel: #ffffff; --panel-2: #f7f9fb; --line: #dce2ea; --ink: #121821; --ink-2: #465163; --ink-3: #6b7686;
+  --red: #d40000; --red-soft: rgba(212, 0, 0, .08); --blue: #0b63d6; --ok: #1f883d; --warn: #9a6700; --crit: #cf222e;
+  --shadow: 0 1px 2px rgba(16, 24, 40, .06), 0 14px 30px rgba(16, 24, 40, .08);
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.6 var(--f-body); }
+img { max-width: 100%; height: auto; display: block; }
+a { color: var(--blue); text-decoration: none; }
+a:hover { text-decoration: underline; }
+a:focus-visible, .btn:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; border-radius: 6px; }
+code, .mono { font-family: var(--f-mono); }
+h1, h2, h3 { font-family: var(--f-display); text-wrap: balance; margin: 0; letter-spacing: -.01em; }
+p { margin: 0; }
+
+.band { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 72px; }
+.band.tight { padding-block: 44px; }
+.band.alt { background: var(--panel); border-block: 1px solid var(--line); }
+.wrap { max-width: var(--wrap); margin: 0 auto; display: flex; flex-direction: column; gap: 32px; min-width: 0; }
+.eyebrow { font: 500 12px/1 var(--f-mono); letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); }
+.lead { color: var(--ink-2); font-size: 18px; max-width: 62ch; }
+.h2 { font-size: clamp(26px, 3.4vw, 38px); line-height: 1.15; font-weight: 700; }
+.sec-head { display: flex; flex-direction: column; gap: 12px; max-width: 760px; }
+
+/* üst çubuk */
+.top { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 16px; border-bottom: 1px solid var(--line); }
+.top .wrap { flex-direction: row; align-items: center; justify-content: space-between; gap: 16px; }
+.logo { display: flex; align-items: center; gap: 10px; font: 700 19px var(--f-display); color: var(--ink); }
+.logo-mark { width: 30px; height: 30px; border-radius: 7px; background: #0b0f14; border: 1px solid var(--line); display: grid; place-items: center; font: 600 13px var(--f-mono); color: #fff; }
+.logo-mark b { color: #ee0000; }
+.top nav { display: flex; gap: 22px; font-size: 14px; }
+.top nav a { color: var(--ink-2); }
+
+/* düğmeler */
+.btns { display: flex; flex-wrap: wrap; gap: 12px; }
+.btn { display: inline-flex; align-items: center; gap: 8px; padding: 11px 18px; border-radius: 8px; font: 600 15px var(--f-body); border: 1px solid var(--line); color: var(--ink); background: var(--panel); }
+.btn:hover { text-decoration: none; border-color: var(--ink-3); }
+.btn.primary { background: var(--red); border-color: var(--red); color: #fff; }
+.btn.primary:hover { filter: brightness(1.08); }
+
+/* hero */
+.hero { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr); gap: 56px; align-items: center; }
+.hero h1 { font-size: clamp(38px, 5.6vw, 66px); line-height: 1.02; font-weight: 900; }
+.hero h1 .clock { font-family: var(--f-mono); font-weight: 500; color: var(--red); letter-spacing: -.04em; }
+.hero-copy { display: flex; flex-direction: column; gap: 24px; min-width: 0; }
+.facts { display: flex; flex-wrap: wrap; gap: 8px 22px; color: var(--ink-3); font: 13px var(--f-mono); }
+.facts span::before { content: "✓ "; color: var(--ok); }
+
+/* sabah bildirimi (örnek Teams kartı) */
+.digest { position: relative; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.digest-meta { display: flex; justify-content: space-between; align-items: baseline; font: 12px var(--f-mono); color: var(--ink-3); }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); }
+.teams { padding: 18px 20px; display: flex; flex-direction: column; gap: 12px; border-left: 4px solid var(--crit); }
+.teams-from { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--ink-3); }
+.teams-from .logo-mark { width: 26px; height: 26px; font-size: 11px; }
+.teams h3 { font-size: 17px; font-weight: 700; color: var(--crit); }
+.teams p { color: var(--ink-2); font-size: 14px; }
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; font-size: 13.5px; }
+.kv dt { color: var(--ink-3); }
+.kv dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+.teams ul { margin: 0; padding-left: 18px; font-size: 13.5px; color: var(--ink-2); display: flex; flex-direction: column; gap: 2px; }
+.teams .open { align-self: flex-start; font-size: 13px; font-weight: 600; padding: 6px 12px; border-radius: 6px; border: 1px solid var(--line); color: var(--ink); }
+.digest .mini { padding: 12px 16px; display: flex; gap: 12px; align-items: center; font-size: 13.5px; border-left: 4px solid var(--warn); }
+.mini b { font-weight: 600; }
+.mini .t { font: 12px var(--f-mono); color: var(--ink-3); margin-left: auto; white-space: nowrap; }
+.sample { font: 11px var(--f-mono); color: var(--ink-3); text-align: right; }
+
+/* zaman akışı */
+.timeline { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0; border-top: 1px solid var(--line); }
+.timeline li { padding: 18px 16px 0 0; display: flex; flex-direction: column; gap: 8px; position: relative; min-width: 0; }
+.timeline li::before { content: ""; position: absolute; top: -5px; left: 0; width: 9px; height: 9px; border-radius: 50%; background: var(--bg); border: 2px solid var(--ink-3); }
+.timeline li.key::before { border-color: var(--red); background: var(--red); }
+.timeline time { font: 500 20px var(--f-mono); color: var(--ink); }
+.timeline b { font-family: var(--f-display); font-size: 16px; }
+.timeline p { color: var(--ink-2); font-size: 14px; }
+
+/* yetenekler */
+.feature { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); gap: 48px; align-items: center; }
+.feature.flip { grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr); }
+.feature.flip .shot { order: -1; }
+.feature-copy { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.feature-copy h3 { font-size: 26px; line-height: 1.2; font-weight: 700; }
+.feature-copy p { color: var(--ink-2); }
+.ticks { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; font-size: 15px; }
+.ticks li { padding-left: 22px; position: relative; }
+.ticks li::before { content: ""; position: absolute; left: 2px; top: .62em; width: 8px; height: 8px; border-radius: 2px; background: var(--red); }
+.shot { border-radius: 12px; overflow: hidden; border: 1px solid var(--line); box-shadow: var(--shadow); background: var(--panel-2); }
+.shot figcaption { font: 12px var(--f-mono); color: var(--ink-3); padding: 10px 14px; border-top: 1px solid var(--line); }
+figure { margin: 0; }
+
+.grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+.cap { padding: 22px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.cap h3 { font-size: 18px; font-weight: 700; }
+.cap p { color: var(--ink-2); font-size: 14.5px; }
+.cap .tag { font: 12px var(--f-mono); color: var(--ink-3); }
+
+/* SLA tablosu */
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 14.5px; }
+th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+th { font: 500 12px var(--f-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
+td.num { font-variant-numeric: tabular-nums; font-family: var(--f-mono); }
+.sev { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12.5px; font-weight: 600; border: 1px solid currentColor; }
+.sev.c { color: var(--crit); } .sev.i { color: var(--warn); } .sev.m { color: var(--blue); } .sev.l { color: var(--ink-3); }
+
+/* kontrol bandı */
+.control { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 28px; }
+.control div { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.control .big { font: 900 44px/1 var(--f-display); color: var(--ink); }
+.control .big small { font-size: 18px; font-weight: 700; color: var(--ink-3); }
+.control p { color: var(--ink-2); font-size: 14.5px; }
+.guard { columns: 2; column-gap: 40px; margin: 0; padding: 0; list-style: none; font-size: 15px; }
+.guard li { break-inside: avoid; padding: 0 0 12px 24px; position: relative; color: var(--ink-2); }
+.guard li b { color: var(--ink); font-weight: 600; }
+.guard li::before { content: "◆"; position: absolute; left: 0; top: 0; color: var(--red); font-size: 12px; line-height: 1.9; }
+
+/* kurulum */
+.term { background: #0a0d12; color: #d7dde6; border: 1px solid #243040; border-radius: 12px; padding: 18px 20px; font: 14px/1.75 var(--f-mono); overflow-x: auto; white-space: pre; }
+.term .c { color: #6f7b8c; }
+.term .p { color: #ee5555; }
+.steps { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr); gap: 40px; align-items: start; }
+.steps ol { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 14px; color: var(--ink-2); }
+.steps ol b { color: var(--ink); }
+
+.cta { display: flex; flex-direction: column; align-items: flex-start; gap: 18px; }
+.foot { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 28px; border-top: 1px solid var(--line); color: var(--ink-3); font-size: 13px; }
+.foot .wrap { flex-direction: row; flex-wrap: wrap; justify-content: space-between; gap: 12px; }
+
+@media (max-width: 960px) {
+  .hero, .feature, .feature.flip, .steps { grid-template-columns: minmax(0, 1fr); gap: 32px; }
+  .feature.flip .shot { order: 0; }
+  .timeline { grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: 28px; }
+  .grid3 { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .control { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 620px) {
+  .band { padding-block: 48px; }
+  .top nav { display: none; }
+  .timeline { grid-template-columns: minmax(0, 1fr); border-top: 0; border-left: 1px solid var(--line); padding-left: 18px; }
+  .timeline li { padding-top: 0; }
+  .timeline li::before { top: 8px; left: -24px; }
+  .grid3, .control { grid-template-columns: minmax(0, 1fr); }
+  .guard { columns: 1; }
+  .lead { font-size: 16.5px; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .digest .card { animation: rise .6s ease-out both; }
+  .digest .card:nth-of-type(2) { animation-delay: .12s; }
+  .digest .card:nth-of-type(3) { animation-delay: .24s; }
+  @keyframes rise { from { transform: translateY(8px); } to { transform: none; } }
+}
+</style>
+<!--ARTIFACT-BODY-->
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <a class="logo" href="#ust" id="ust"><span class="logo-mark">&gt;<b>_</b></span>Trinity</a>
+    <nav aria-label="Bölümler">
+      <a href="#akis">Bir sabah</a>
+      <a href="#yetenekler">Yetenekler</a>
+      <a href="#kontrol">Güvenlik</a>
+      <a href="#kurulum">Kurulum</a>
+    </nav>
+  </div>
+</header>
+
+<section class="band">
+  <div class="wrap hero">
+    <div class="hero-copy">
+      <span class="eyebrow">RHEL filosu için yapay zekâ destekli operasyon merkezi</span>
+      <h1>Her sabah <span class="clock">06:30</span>'da filonuzun durumu ekibinizin önünde.</h1>
+      <p class="lead">Trinity, Red Hat Enterprise Linux sunucularınızı ajan kurmadan SSH ile tarar, logları ve metrikleri kurumsal GenAI ile yorumlar,
+        Satellite'tan açık zafiyetleri çıkarır ve sorunları onayınızla çalışan Ansible playbook'larına dönüştürür.</p>
+      <div class="btns">
+        <a class="btn primary" href="./">Trinity'yi aç</a>
+        <a class="btn" href="./#/report">Yönetim raporunu gör</a>
+      </div>
+      <div class="facts"><span>hedefe kurulum yok</span><span>salt-okunur komutlar</span><span>onaysız değişiklik yok</span><span>veri kurum içinde</span></div>
+    </div>
+
+    <div class="digest" aria-label="Örnek sabah bildirimi">
+      <div class="digest-meta"><span>#linux-operasyon · Microsoft Teams</span><span>06:41</span></div>
+      <div class="card teams">
+        <div class="teams-from"><span class="logo-mark">&gt;<b>_</b></span>Trinity · otomatik bildirim</div>
+        <h3>2 sunucu kritik, 5 P1 aksiyon · 48 sunucu tarandı</h3>
+        <p>/u01 dolmak üzere ve son 24 saatte OOM kill görüldü; iki uygulama sunucusunda kernel I/O hataları artıyor.</p>
+        <dl class="kv">
+          <dt>Kritik</dt><dd>prd-db07, prd-app12</dd>
+          <dt>Ortalama sağlık</dt><dd>82/100</dd>
+          <dt>Toplanamayan</dt><dd>yok</dd>
+        </dl>
+        <ul>
+          <li>prd-db07: /u01 %96, ~1,3 gün içinde dolacak</li>
+          <li>prd-db07: son 24 saatte 1 OOM kill</li>
+          <li>prd-app12: kernel logunda 10 disk I/O hatası</li>
+        </ul>
+        <span class="open">Trinity'de aç</span>
+      </div>
+      <div class="card mini"><span>Playbook onayınızı bekliyor: <b>prd-db07</b> · /u01 arşiv temizliği</span><span class="t">06:43</span></div>
+      <div class="card mini" style="border-left-color: var(--crit)"><span>Zafiyet taraması: <b>3 Critical</b>, 7 SLA aşan errata</span><span class="t">06:45</span></div>
+      <span class="sample">örnek bildirim · sunucu adları temsilîdir</span>
+    </div>
+  </div>
+</section>
+
+<section class="band alt" id="akis">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">Bir sabah, Trinity ile</span>
+      <h2 class="h2">Ekip mesaiye başladığında tarama, analiz ve önceliklendirme bitmiş olur.</h2>
+    </div>
+    <ol class="timeline">
+      <li class="key"><time>06:30</time><b>Topla</b><p>Zamanlayıcı tüm etkin sunuculara SSH ile bağlanır: disk, bellek, yük, journal, kernel, servisler, SSH denemeleri.</p></li>
+      <li><time>06:34</time><b>Analiz et</b><p>Kural motoru eşikleri değerlendirir, GenAI anomalileri yorumlar ve her sunucuya 0-100 sağlık puanı verir.</p></li>
+      <li><time>06:40</time><b>Zafiyetleri çıkar</b><p>Satellite'tan sunucu başına açık RHSA ve CVE'ler, yamanın hazır olup olmadığı ve SLA durumu.</p></li>
+      <li class="key"><time>06:41</time><b>Haber ver</b><p>Teams, Slack veya e-posta ile özet: kritik sunucular, P1 aksiyonlar, onay bekleyen playbook'lar.</p></li>
+      <li><time>09:10</time><b>Onayla</b><p>MorpheusAI'nin kurumsal standartlara göre ürettiği playbook'u inceleyip tek tıkla onaylarsınız.</p></li>
+      <li><time>09:12</time><b>Uygula</b><p>AAP önce dry-run (check) çalıştırır; sonuç temizse sunucuya uygulanır. Her adım kayıt altında.</p></li>
+    </ol>
+  </div>
+</section>
+
+<section class="band" id="yetenekler">
+  <div class="wrap" style="gap: 72px">
+    <div class="feature">
+      <div class="feature-copy">
+        <span class="eyebrow">Genel bakış</span>
+        <h3>Bütün filo tek ekranda, en acil iş en üstte.</h3>
+        <p>Filo skoru, kritik ve uyarıdaki sunucular, bugün yapılması gerekenler. Her aksiyonun yanında hangi komutla doğrulanacağı ve nasıl düzeltileceği yazar.</p>
+        <ul class="ticks">
+          <li>Sunucu kartları: en dolu disk, boş bellek, load, I/O wait</li>
+          <li>7 günlük trend ve dolma süresi tahmini (ör. /u01 ~1,3 gün)</li>
+          <li>Ctrl+K ile sunucu, ekran ve işlem araması</li>
+        </ul>
+      </div>
+      <figure class="shot"><img src="assets/tanitim/dashboard-dark.png" alt="Trinity Genel Bakış ekranı: filo skoru 33, 3 kritik sunucu ve P1 aksiyon listesi" width="1440" height="900" loading="lazy" />
+        <figcaption>Genel Bakış · demo verisi</figcaption></figure>
+    </div>
+
+    <div class="feature flip">
+      <div class="feature-copy">
+        <span class="eyebrow">Sunucu detayı ve Trinity Ajanı</span>
+        <h3>Ne olduğu, neden olduğu ve ne yapılacağı.</h3>
+        <p>Her bulgu kanıtıyla gelir: hangi log satırı, hangi metrik, hangi eşik. Trinity Ajanı'na doğal dille sorarsınız; gerekirse sunucuda salt-okunur tanı komutu çalıştırıp cevap verir.</p>
+        <ul class="ticks">
+          <li>Aksiyonlar, anomaliler, kural bulguları, ham loglar</li>
+          <li>Canlı tanı: yalnızca onaylı, salt-okunur komut kataloğu</li>
+          <li>Bulgu tek tıkla MorpheusAI'ye: playbook, uyum skoru, onay</li>
+        </ul>
+      </div>
+      <figure class="shot"><img src="assets/tanitim/server_rhel-db01-dark.png" alt="Sunucu detayı: /u01 %96 dolu, boş bellek %7, 8 acil aksiyon" width="1440" height="900" loading="lazy" />
+        <figcaption>Sunucu detayı · demo verisi</figcaption></figure>
+    </div>
+
+    <div class="feature">
+      <div class="feature-copy">
+        <span class="eyebrow">Yönetim raporu</span>
+        <h3>Yöneticiye gidecek rapor tek tıkla hazır.</h3>
+        <p>Son 7, 30 veya 90 gün: filo sağlık puanı ve trendi, en riskli sunucular, öne çıkan sorunlar, açık zafiyetler ve otomatik düzeltme sayıları. A4 olarak PDF'e kaydedilir.</p>
+        <ul class="ticks">
+          <li>Dönem başına göre puan değişimi</li>
+          <li>Critical / Important errata, SLA aşımı, en yaygın CVE'ler</li>
+          <li>Otomasyonla kazanılan süre, varsayımıyla birlikte</li>
+        </ul>
+      </div>
+      <figure class="shot"><img src="assets/tanitim/report-light.png" alt="Yönetim raporu: filo sağlık puanı, sunucu durumu, P1 sayısı ve günlük trend grafiği" width="1440" height="900" loading="lazy" />
+        <figcaption>Yönetim Raporu · demo verisi</figcaption></figure>
+    </div>
+
+    <div class="grid3">
+      <div class="card cap"><span class="tag">CVE takibi</span><h3>"Bu CVE bizi etkiliyor mu?"</h3>
+        <p>Güvenlik ekibinin ilettiği CVE numarasını girin: Satellite'tan kapatan errata ve etkilenen sunucular gelir, Satellite'ın göremediği sunucular SSH ile doğrulanır.</p></div>
+      <div class="card cap"><span class="tag">Zafiyet torbası</span><h3>Her sunucunun açık RHSA'ları</h3>
+        <p>Önem derecesi, yamanın content view'de hazır olup olmadığı, kaç gündür açık olduğu ve SLA aşımı. Errata'nın içeriği, Red Hat'in çözümü ve sunucuya özel komutlar.</p></div>
+      <div class="card cap"><span class="tag">MorpheusAI → AAP</span><h3>Onaylı otomatik düzeltme</h3>
+        <p>Bulgu kurumsal Ansible standartlarına uygun bir playbook'a dönüşür. Siz onaylamadan AAP'de hiçbir şey çalışmaz; önce dry-run, sonra uygulama.</p></div>
+      <div class="card cap"><span class="tag">Bildirimler</span><h3>Teams, Slack, e-posta</h3>
+        <p>Günlük özet, kritik durum, onay bekleyen playbook ve zafiyet uyarısı. Her olay ayrı açılıp kapatılır; adresler gizli tutulur.</p></div>
+      <div class="card cap"><span class="tag">Ajanlar arası</span><h3>MCP ile konuşan ajanlar</h3>
+        <p>Trinity ve MorpheusAI araç çağrılarıyla birbirine danışır. Trinity'nin araçları Claude Code gibi MCP istemcilerinden de kullanılabilir.</p></div>
+      <div class="card cap"><span class="tag">Kurumsal GenAI</span><h3>Kendi model ağ geçidiniz</h3>
+        <p>Token servisi ve chat/completions adresleri arayüzden girilir. Günlük token limitleri, kullanıcı bazında kullanım ve maskelenmiş AI logları.</p></div>
+    </div>
+
+    <div class="feature">
+      <div class="feature-copy">
+        <span class="eyebrow">Güvenlik ekibiyle aynı dil</span>
+        <h3>Red Hat önem derecesi ve kapatma süreleri.</h3>
+        <p>Zafiyet torbası her errata'yı Red Hat'in yayın tarihinden itibaren sayar. Süreyi aşan her kayıt raporda ve bildirimde ayrıca işaretlenir. Süreler kurum politikasına göre değiştirilebilir.</p>
+      </div>
+      <div class="card table-wrap">
+        <table>
+          <thead><tr><th>Önem</th><th>Kapatma süresi</th><th>Örnek errata</th></tr></thead>
+          <tbody>
+            <tr><td><span class="sev c">Critical</span></td><td class="num">15 gün</td><td class="mono">RHSA-2024:4312 · openssh</td></tr>
+            <tr><td><span class="sev i">Important</span></td><td class="num">30 gün</td><td class="mono">kernel security update</td></tr>
+            <tr><td><span class="sev m">Moderate</span></td><td class="num">90 gün</td><td class="mono">curl security update</td></tr>
+            <tr><td><span class="sev l">Low</span></td><td class="num">180 gün</td><td class="mono">—</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="band alt" id="kontrol">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">Kontrol sizde</span>
+      <h2 class="h2">Üretim sunucularına dokunan bir araçtan beklenen güvenceler.</h2>
+    </div>
+    <div class="control">
+      <div><span class="big">0</span><p>hedef sunucuya kurulan ajan veya paket. Bağlantı mevcut SSH anahtarıyla yapılır.</p></div>
+      <div><span class="big">0</span><p>onaysız değişiklik. Toplama ve tanı salt-okunurdur; düzeltme yalnızca bir kişinin onayıyla çalışır.</p></div>
+      <div><span class="big">0</span><p>ek Python paketi. Sunucu tarafı yalnızca standart kütüphaneyle çalışır; <code>pip install</code> gerekmez.</p></div>
+      <div><span class="big">Kayıt</span><p>Durum değiştiren her işlem kim, ne zaman, hangi IP'den bilgisiyle İşlem Kayıtları'na yazılır.</p></div>
+    </div>
+    <ul class="guard">
+      <li><b>LDAP / Active Directory girişi.</b> Yönetici grubu ayrı; ayar ve onay işlemleri yalnızca yöneticilere açık.</li>
+      <li><b>Sırlar maskeli.</b> Parola, token ve webhook adresleri arayüzde ve loglarda gösterilmez.</li>
+      <li><b>GenAI'ya giden veri kontrollü.</b> IP adresleri maskelenebilir; log metni modele talimat değil veri olarak verilir.</li>
+      <li><b>Token limitleri.</b> Günlük limit dolunca AI çağrısı yapılmaz, analiz kural motoruyla sürer.</li>
+      <li><b>Web güvenliği.</b> CSP, CSRF koruması, HttpOnly oturum çerezi, güvenilir proxy listesi.</li>
+      <li><b>Veri kurum içinde.</b> Analizler ve geçmiş merkez sunucuda <code>data/</code> altında; saklama süresi ayarlanır.</li>
+    </ul>
+  </div>
+</section>
+
+<section class="band">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">Kim ne kazanır</span>
+      <h2 class="h2">Aynı veri, üç ekip için ayrı bir fayda.</h2>
+    </div>
+    <div class="grid3">
+      <div class="card cap"><span class="tag">Linux / Unix ekibi</span><h3>Sabah kontrolü hazır gelir</h3>
+        <p>Elle sunucu sunucu gezmek yerine önceliklendirilmiş iş listesi, kanıtı ve komutu. Tekrarlayan düzeltmeler onaylı playbook'a dönüşür.</p></div>
+      <div class="card cap"><span class="tag">Bilgi güvenliği</span><h3>CVE sorusuna dakikalar içinde cevap</h3>
+        <p>Hangi sunucu etkileniyor, yama hazır mı, SLA aşıldı mı. Sunucu bazında zafiyet torbası ve CSV dışa aktarma.</p></div>
+      <div class="card cap"><span class="tag">Yönetim</span><h3>Riskin tek sayfalık özeti</h3>
+        <p>Filo sağlığı trendi, açık kritik konular, otomasyonun ne kadar iş yaptığı. Toplantıya PDF olarak gelir.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="band alt" id="kurulum">
+  <div class="wrap steps">
+    <div class="sec-head">
+      <span class="eyebrow">Kurulum</span>
+      <h2 class="h2">Tek bir RHEL sunucusuna kurulur.</h2>
+      <ol>
+        <li><b>Kurun.</b> Betik Python'u, SSH anahtarını, systemd servisini ve güvenlik duvarı kuralını hazırlar.</li>
+        <li><b>Bağlayın.</b> Ayarlar ekranından GenAI ağ geçidi, Satellite, MorpheusAI ve bildirim kanalları.</li>
+        <li><b>Sunucuları ekleyin.</b> Listeyi yapıştırın, açık anahtarı hedeflere dağıtın; ertesi sabah ilk rapor hazır.</li>
+      </ol>
+    </div>
+    <pre class="term"><span class="c"># merkez sunucuda (RHEL 8/9, root)</span>
+<span class="p">#</span> git clone &lt;repo&gt; /opt/unixai-os &amp;&amp; cd /opt/unixai-os
+<span class="p">#</span> bash deploy/install.sh
+<span class="c">  ✓ Python 3.9+   ✓ ssh anahtarı   ✓ .env   ✓ systemd   ✓ firewalld</span>
+<span class="c">  → http://merkez-sunucu:3000</span>
+
+<span class="c"># hedef sunucularda yalnızca açık anahtar</span>
+<span class="p">#</span> bash target-setup.sh "ssh-rsa AAAA…" &lt;merkez_sunucu_ip&gt;
+
+<span class="c"># güncelleme</span>
+<span class="p">#</span> git pull &amp;&amp; systemctl restart unixai-os</pre>
+  </div>
+</section>
+
+<section class="band tight">
+  <div class="wrap cta">
+    <h2 class="h2">Filonuzu yarın sabah Trinity ile karşılayın.</h2>
+    <div class="btns"><a class="btn primary" href="./">Trinity'yi aç</a><a class="btn" href="./#/settings">Bağlantıları ayarla</a></div>
+  </div>
+</section>
+
+<footer class="foot">
+  <div class="wrap"><span>Trinity · RHEL sağlık, CVE ve AI analiz</span><span>Kardeş proje: MorpheusAI (standartlara uygun Ansible → AAP)</span></div>
+</footer>
+
+<!--/ARTIFACT-BODY-->
+</body>
+</html>

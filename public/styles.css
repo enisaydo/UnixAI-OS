@@ -768,3 +768,7 @@ pre.cmd { margin: 6px 0 0; padding: 8px 10px; border-radius: 8px; background: va
   .kpi-p1 { border-color: #cf222e !important; }
   @page { size: A4; margin: 14mm 12mm; }
 }
+
+.login-about { display: block; margin-top: 16px; text-align: center; font-size: 13px; color: var(--muted); }
+.sidebar a.nav-about { margin-top: auto; font-size: 13px; color: var(--muted); }
+.sidebar a.nav-about + .nav-foot { margin-top: 8px; }
