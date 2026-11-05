@@ -1,6 +1,19 @@
 # Trinity
 
-RHEL sunuculardan **agentless (SSH)** günlük log ve metrik toplayan, kural motoru + kurumsal **GenAI (GPT)** ile
+**RHEL filosu için yapay zekâ destekli operasyon merkezi.** Her sabah tüm Linux sunucularını ajan kurmadan SSH ile tarar,
+logları ve metrikleri kurumsal GenAI ile yorumlar, Red Hat Satellite'tan açık zafiyetleri çıkarır ve sorunları
+**onayınızla** çalışan Ansible playbook'larına (MorpheusAI → AAP) dönüştürür. Ekip mesaiye başladığında özet Teams'te / e-postada olur.
+
+| | |
+|---|---|
+| **Linux ekibi** | Önceliklendirilmiş günlük iş listesi; her bulgunun kanıtı, doğrulama ve düzeltme komutu; Trinity Ajanı ile doğal dilde soru-cevap ve salt-okunur canlı tanı |
+| **Bilgi güvenliği** | CVE etki analizi (hangi sunucu etkileniyor, yama hazır mı), sunucu bazında zafiyet torbası, Red Hat önem derecesine göre SLA takibi, CSV |
+| **Yönetim** | Yazdırılabilir yönetim raporu: filo sağlık trendi, kritik konular, zafiyetler, otomasyonla kazanılan süre |
+| **Güvence** | Hedefe kurulum yok, salt-okunur toplama, onaysız değişiklik yok, LDAP + rol, maskeli sırlar, işlem kayıtları, veri kurum içinde |
+
+Ürün tanıtım sayfası: Trinity çalışırken **`/tanitim.html`** (giriş ekranında ve menüde *Trinity hakkında*).
+
+Teknik olarak: RHEL sunuculardan **agentless (SSH)** günlük log ve metrik toplayan, kural motoru + kurumsal **GenAI (GPT)** ile
 sunucu bazında anomali analizi yapıp **aksiyon maddeleri** çıkaran web arayüzü.
 MorpheusAI ile aynı yapıdadır (aynı arayüz, aynı GenAI akışı: token servisi → chat/completions, token kullanımı/limitleri,
 AI logları, LDAP girişi); backend **Python**'dır ve yalnızca standart kütüphaneyi kullanır — `pip install` gerekmez.
@@ -203,6 +216,16 @@ otomatik analizle kazanılan tahmini süre (varsayım raporda yazılıdır: sunu
 ```bash
 cd /opt/unixai-os && git pull && systemctl restart unixai-os
 ```
+
+## Yedekleme
+
+```bash
+bash deploy/backup.sh                         # → /var/backups/trinity/trinity-YYYYmmdd-HHMM.tar.gz (data/ + .env, son 14 yedek)
+# günlük: root crontab →  15 5 * * * /opt/unixai-os/deploy/backup.sh >/dev/null
+# geri yükleme: systemctl stop unixai-os && tar -C /opt/unixai-os -xzf <yedek> && systemctl start unixai-os
+```
+
+`BACKUP_DIR`, `KEEP` (yedek sayısı) ve `INCLUDE_LOGS=true` ile ayarlanır. Yedek parola/token içerir; 0600 yazılır.
 
 ## Giriş ve güvenlik
 
