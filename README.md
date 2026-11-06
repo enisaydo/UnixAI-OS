@@ -155,7 +155,25 @@ Kurulum ve mimari: [`mcp/README.md`](mcp/README.md) · Arayüz: **Ajan & MCP**
 
 Toplama tek SSH oturumunda `bash -s` ile salt-okunur komutlar çalıştırır: df/inode, bellek, vmstat, load,
 failed unit'ler, journal hataları, başarısız SSH girişleri, kernel uyarıları, SELinux/AVC, chrony, RHSA güncellemeleri,
-needs-restarting, top prosesler, zombie. Root değilse ayrıcalıklı komutlar `sudo -n` ile çalışır.
+needs-restarting, top prosesler, zombie. Root değilse ayrıcalıklı komutlar `sudo -n` veya Centrify `dzdo -n` ile
+çalışır (Ayarlar → SSH → yetki yükseltme). SSH testi, parolasız yetki yükseltmenin çalışıp çalışmadığını da söyler.
+
+### Kerberos ile toplama (anahtarsız, AD + Centrify)
+
+Hedefler Centrify ile AD'ye bağlıysa Trinity anahtar yerine bir AD servis hesabının Kerberos biletiyle bağlanabilir.
+Hedeflerde Trinity'ye ait anahtar tutulmaz; erişim AD'de hesap kapatılarak kesilir, oturumlar AD kullanıcısıyla Centrify
+denetimine düşer.
+
+1. AD'de servis hesabı (ör. `svc-trinity`) ve keytab: `adkeytab --new --upn svc-trinity@KURUM.LOCAL --keytab /etc/trinity/trinity.keytab svc-trinity`
+   (veya Windows'ta `ktpass ... /crypto AES256-SHA1`). Keytab `chmod 600`, sahibi Trinity servis kullanıcısı.
+2. Trinity sunucusunda `krb5-workstation` (kinit, klist) ve `/etc/krb5.conf` (Centrify `adjoin` ile hazır gelir); DC'lere 88/TCP-UDP.
+3. Centrify zone'unda hesaba hedeflere giriş izni ve toplama komutları için parolasız `dzdo`.
+4. **Ayarlar → SSH**: Kimlik doğrulama *Kerberos*, kullanıcı `svc-trinity`, hesap `svc-trinity@KURUM.LOCAL`, keytab yolu, yetki yükseltme *dzdo*.
+5. Envanterdeki adresler **tam alan adı** (FQDN) olmalı; Kerberos IP ile çalışmaz.
+
+Bilet Trinity'nin kendi önbelleğinde (`data/krb5cc_trinity`) tutulur, gerektiğinde keytab ile yenilenir (`KRB_RENEW_AFTER`, varsayılan
+30 dk); bilet karşı sunucuya kopyalanmaz (`GSSAPIDelegateCredentials=no`). Durum ve kurulum komutları **Sunucular** ekranındaki kartta.
+Geçiş sunucu sunucu yapılabilir: sunucuyu düzenleyip kimlik doğrulamayı tek tek *Kerberos* veya *SSH anahtarı* seçin.
 
 ## Ekranlar
 

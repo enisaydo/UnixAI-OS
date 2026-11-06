@@ -3,6 +3,8 @@
 Tek bir SSH oturumunda, stdin üzerinden bir bash betiği gönderilir (ssh ... bash -s); her komut çıktısı
 `===UNIXAI:<bölüm>===` işaretleriyle ayrılır. Hedefte dosya bırakılmaz.
 Sistemdeki `ssh` istemcisi kullanılır (RHEL: openssh-clients); UNIXAI_SSH_BIN ile değiştirilebilir.
+Kimlik doğrulama: anahtar (-i keyFile) veya Kerberos (AD servis hesabının bileti, bkz. kerberos.py);
+sunucu bazında envanterde değiştirilebilir.
 """
 from __future__ import annotations
 
@@ -17,14 +19,14 @@ MARKER = "===UNIXAI:"
 SSH_BIN = os.environ.get("UNIXAI_SSH_BIN", "ssh")
 SSH_PREFIX = json.loads(os.environ.get("UNIXAI_SSH_PREFIX", "[]"))  # test: UNIXAI_SSH_BIN=python, UNIXAI_SSH_PREFIX='["scripts/fake_ssh.py"]'
 
-# Varsayılan olarak root ile bağlanılır. Root değilse ayrıcalıklı komutlar `sudo -n` ile çalışır
-# (parola istenirse beklemek yerine hata verir). Hepsi salt-okunur komutlardır.
+# Varsayılan olarak root ile bağlanılır. Root değilse ayrıcalıklı komutlar `sudo -n` veya Centrify `dzdo -n`
+# ile çalışır (Ayarlar → SSH → yetki yükseltme; parola istenirse beklemek yerine hata verir). Hepsi salt-okunur komutlardır.
 # Gövde tek fonksiyonda: bash onu tamamen okuduktan sonra stdin'i /dev/null'a bağlayıp çalıştırır.
 # Aksi halde stdin'den okuyan komutlar (ör. ausearch) betiğin geri kalanını yutar.
 COLLECT_SCRIPT = r"""
 unixai_collect() {
 export LC_ALL=C
-if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo -n"; fi
+if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="__PRIV__"; fi
 sec(){ echo "===UNIXAI:$1==="; }
 sec hostname;        hostname -f 2>/dev/null || hostname
 sec os_release;       cat /etc/redhat-release 2>/dev/null
@@ -59,6 +61,21 @@ SECTIONS = ["hostname", "os_release", "kernel", "uptime_seconds", "nproc", "load
             "vmstat", "failed_units", "journal_errors", "ssh_failures", "kernel_errors", "selinux", "avc_denials", "chrony",
             "security_updates", "needs_restarting", "top_processes", "zombies", "crash_dumps", "prev_boot_tail", "reboots"]
 
+PRIVILEGE = {"sudo": "sudo -n", "dzdo": "dzdo -n"}  # dzdo: Centrify (Delinea) rol tabanlı yetki yükseltme
+
+
+def privilege(ssh: dict) -> str:
+    return PRIVILEGE.get(ssh.get("privilege") or "sudo", PRIVILEGE["sudo"])
+
+
+def collect_script(ssh: dict) -> str:
+    return COLLECT_SCRIPT.replace("__PRIV__", privilege(ssh))
+
+
+def auth_of(server: dict, ssh: dict) -> str:
+    """'key' | 'kerberos' — sunucudaki değer Ayarlar'daki varsayılanı ezer"""
+    return server.get("auth") or ssh.get("auth") or "key"
+
 
 def split_sections(raw: str):
     sections: dict = {}
@@ -76,6 +93,11 @@ def split_sections(raw: str):
 
 
 def ssh_args(server: dict, ssh: dict, remote_command: str) -> list:
+    if auth_of(server, ssh) == "kerberos":
+        # bilet karşı sunucuya kopyalanmaz (delegation kapalı); anahtar denenmez
+        cred = ["-o", "GSSAPIAuthentication=yes", "-o", "GSSAPIDelegateCredentials=no", "-o", "PreferredAuthentications=gssapi-with-mic"]
+    else:
+        cred = ["-o", "IdentitiesOnly=yes", "-i", server.get("keyFile") or ssh["keyFile"]]
     return [
         "-o", "BatchMode=yes",
         "-o", f"StrictHostKeyChecking={'accept-new' if ssh['hostKeyPolicy'] == 'accept-new' else 'yes'}",
@@ -83,8 +105,7 @@ def ssh_args(server: dict, ssh: dict, remote_command: str) -> list:
         "-o", "ServerAliveInterval=15",
         "-o", "ServerAliveCountMax=3",
         "-o", "LogLevel=ERROR",
-        "-o", "IdentitiesOnly=yes",
-        "-i", server.get("keyFile") or ssh["keyFile"],
+        *cred,
         "-p", str(server.get("port") or ssh["port"]),
         "-l", server.get("user") or ssh["user"],
         "--", server["host"], remote_command,
@@ -97,7 +118,7 @@ def run_ssh(server: dict, ssh: dict, remote_command: str, stdin: str = "", purpo
     from . import oplog
 
     failed = r["timedOut"] or r["code"] != 0
-    oplog.log("ssh", f"SSH {purpose}", server=server.get("name"), host=server.get("host"), sshUser=server.get("user") or ssh["user"],
+    oplog.log("ssh", f"SSH {purpose}", server=server.get("name"), host=server.get("host"), sshUser=server.get("user") or ssh["user"], auth=auth_of(server, ssh),
               port=server.get("port") or ssh["port"], command=remote_command if remote_command != "bash -s" else f"bash -s ({purpose} betiği)",
               exitCode=r["code"], durationMs=r["durationMs"], timedOut=r["timedOut"] or None, stdoutBytes=len(r["stdout"] or ""),
               stderr=(r["stderr"] or "")[-500:] if failed and r["stderr"] else None,
@@ -108,9 +129,18 @@ def run_ssh(server: dict, ssh: dict, remote_command: str, stdin: str = "", purpo
 def _run_ssh(server: dict, ssh: dict, remote_command: str, stdin: str = "") -> dict:
     started = time.monotonic()
     timeout = ssh["connectTimeout"] + ssh["commandTimeout"]
+    env = None
+    if auth_of(server, ssh) == "kerberos":
+        from . import kerberos
+
+        try:
+            kerberos.ensure(ssh)
+        except kerberos.KerberosError as e:
+            return {"code": -1, "stdout": "", "stderr": f"KERBEROS: {e}", "durationMs": int((time.monotonic() - started) * 1000), "timedOut": False}
+        env = kerberos.env()
     try:
         p = subprocess.run([SSH_BIN, *SSH_PREFIX, *ssh_args(server, ssh, remote_command)], input=stdin.encode(), capture_output=True,
-                           timeout=timeout)
+                           timeout=timeout, env=env)
         return {"code": p.returncode, "stdout": p.stdout.decode("utf-8", "replace"), "stderr": p.stderr.decode("utf-8", "replace")[:100000],
                 "durationMs": int((time.monotonic() - started) * 1000), "timedOut": False}
     except subprocess.TimeoutExpired as e:
@@ -123,6 +153,12 @@ def explain(stderr: str, server: dict, ssh: dict) -> str:
     """SSH hata çıktısını kullanıcıya yol gösteren mesaja çevirir"""
     s = stderr.strip()
     user, port, key = server.get("user") or ssh["user"], server.get("port") or ssh["port"], server.get("keyFile") or ssh["keyFile"]
+    if s.startswith("KERBEROS: "):
+        return "Kerberos: " + s[len("KERBEROS: "):]
+    if auth_of(server, ssh) == "kerberos":
+        msg = _explain_kerberos(s, server, user)
+        if msg:
+            return msg
     if re.search(r"Host key verification failed|No .* host key is known", s, re.I):
         return (f"Host key bilinmiyor. Merkez sunucuda: ssh-keyscan -H {server['host']} >> /root/.ssh/known_hosts  "
                 "(veya Ayarlar → SSH → host key politikası: accept-new)")
@@ -157,8 +193,30 @@ def explain(stderr: str, server: dict, ssh: dict) -> str:
     return " ".join(s.splitlines()[-3:]) or "Bilinmeyen SSH hatası"
 
 
+def _explain_kerberos(s: str, server: dict, user: str):
+    from . import kerberos
+
+    host = server["host"]
+    if re.search(r"Server not found in Kerberos database|Permission denied", s, re.I) and kerberos.is_ip(host):
+        return (f"Kerberos ile IP adresine ({host}) bağlanılamaz: bilet sunucunun adına verilir. "
+                "Envanterde adresi tam alan adıyla (FQDN, ör. rhel-db01.kurum.local) yazın.")
+    if re.search(r"Server not found in Kerberos database", s, re.I):
+        return (f"AD'de host/{host} kaydı yok: sunucu AD'ye bağlı mı (hedefte adinfo), adres tam alan adı mı, "
+                "DNS ileri/geri çözümleme tutarlı mı?")
+    if re.search(r"Clock skew too great", s, re.I):
+        return f"{host} ile AD arasında saat farkı 5 dakikadan fazla: hedefte chronyc tracking."
+    if re.search(r"Permission denied", s, re.I):
+        return (f"Kerberos girişi reddedildi ({user}@{host}). Kontrol edin: "
+                f"1) Centrify zone'unda {user} için giriş izni: hedefte dzinfo {user} ve adquery user {user} "
+                "2) hedef AD'ye bağlı mı: adinfo "
+                "3) sshd: sshd -T | grep -i gssapiauthentication → yes olmalı "
+                f"4) merkezde klist: host/{host} bileti alındı mı (alınmadıysa DNS / SPN sorunu) "
+                "5) hedefte journalctl -u sshd -n 20 (Centrify: /var/log/secure) asıl sebebi gösterir.")
+    return None
+
+
 def collect_one(server: dict, ssh: dict) -> dict:
-    r = run_ssh(server, ssh, "bash -s", COLLECT_SCRIPT, purpose="toplama")
+    r = run_ssh(server, ssh, "bash -s", collect_script(ssh), purpose="toplama")
     sections, complete = split_sections(r["stdout"])
     if r["timedOut"]:
         return {"ok": False, "error": f"Zaman aşımı ({ssh['connectTimeout'] + ssh['commandTimeout']} sn)", "sections": sections, "durationMs": r["durationMs"]}
@@ -169,8 +227,12 @@ def collect_one(server: dict, ssh: dict) -> dict:
 
 
 def test(server: dict, ssh: dict) -> dict:
-    """Bağlantı testi: kimlik ve OS sürümü"""
-    r = run_ssh(server, ssh, "bash -s", 'echo "user=$(id -un) host=$(hostname -f 2>/dev/null || hostname)"; cat /etc/redhat-release 2>/dev/null\n', purpose="bağlantı testi")
+    """Bağlantı testi: kimlik, OS sürümü ve (root değilse) parolasız yetki yükseltme"""
+    priv = privilege(ssh)
+    script = ('echo "user=$(id -un) host=$(hostname -f 2>/dev/null || hostname)"; cat /etc/redhat-release 2>/dev/null\n'
+              f'if [ "$(id -u)" -ne 0 ]; then if {priv} true </dev/null >/dev/null 2>&1; then echo "yetki: {priv} çalışıyor"; '
+              f'else echo "UYARI: {priv} parolasız çalışmıyor; journal, ausearch ve needs-restarting bölümleri boş kalır"; fi; fi\n')
+    r = run_ssh(server, ssh, "bash -s", script, purpose="bağlantı testi")
     if r["code"] == 0 and "user=" in r["stdout"]:
         return {"ok": True, "output": r["stdout"].strip(), "durationMs": r["durationMs"]}
     return {"ok": False, "error": "Zaman aşımı" if r["timedOut"] else explain(r["stderr"], server, ssh), "durationMs": r["durationMs"]}

@@ -754,7 +754,7 @@ function renderInventory() {
     (State.inventory.map((s) => {
       const l = latest.get(s.name);
       return `<tr class="${s.enabled ? "" : "row-off"}"><td class="t-name">${esc(s.name)}${s.enabled ? "" : ` <span class="label">pasif</span>`}</td>
-        <td class="mono">${esc(s.host)}</td><td>${esc(s.user || d.user)}${s.user ? "" : ` <span class="muted sm">(varsayılan)</span>`}</td>
+        <td class="mono">${esc(s.host)}</td><td>${esc(s.user || d.user)}${s.user ? "" : ` <span class="muted sm">(varsayılan)</span>`}${(s.auth || d.auth) === "kerberos" ? ` <span class="label" title="Kerberos (AD bileti) ile bağlanılır">kerberos</span>` : ""}</td>
         <td class="num">${s.port || d.port}</td><td>${s.tags.map((t) => `<span class="label">${esc(t)}</span>`).join(" ")}</td>
         <td>${!l ? `<span class="muted sm">—</span>` : l.collect === "failed" ? `<span class="status-err sm" title="${esc(l.error)}">ulaşılamadı</span>` : `${statusTag(l.status)} <span class="t-sub">${esc(ago(l.collectedAt))}</span>`}</td>
         <td class="row-actions"><button class="btn link sm" data-test="${esc(s.name)}">SSH testi</button>
@@ -773,7 +773,17 @@ function serverModal(name) {
         <label>SSH kullanıcısı<input class="input" name="user" value="${esc(s.user || "")}" placeholder="${esc(d.user)} (varsayılan)" /></label>
         <label>Port<input class="input" name="port" type="number" value="${esc(s.port || "")}" placeholder="${esc(d.port)}" /></label>
       </div>
-      <label>Anahtar dosyası<input class="input mono" name="keyFile" value="${esc(s.keyFile || "")}" placeholder="${esc(d.keyFile)} (varsayılan)" /></label>
+      <div class="grid-2">
+        <label>Kimlik doğrulama
+          <select class="input" name="auth">
+            <option value="">Varsayılan (${d.auth === "kerberos" ? "Kerberos" : "SSH anahtarı"})</option>
+            <option value="key" ${s.auth === "key" ? "selected" : ""}>SSH anahtarı</option>
+            <option value="kerberos" ${s.auth === "kerberos" ? "selected" : ""}>Kerberos</option>
+          </select>
+          <small>Kerberos için adres tam alan adı (FQDN) olmalı</small>
+        </label>
+        <label>Anahtar dosyası<input class="input mono" name="keyFile" value="${esc(s.keyFile || "")}" placeholder="${esc(d.keyFile)} (varsayılan)" /></label>
+      </div>
       <label>Etiketler<input class="input" name="tags" value="${esc(s.tags.join(", "))}" placeholder="prod, oracle" /><small>Virgülle ayırın.</small></label>
       <label>Not<input class="input" name="notes" value="${esc(s.notes || "")}" /></label>
       <label class="check"><input type="checkbox" name="enabled" ${s.enabled ? "checked" : ""} /> Günlük toplamaya dahil</label>
@@ -782,7 +792,7 @@ function serverModal(name) {
     </form>`);
   const read = () => {
     const f = $("#srvForm").elements;
-    return { name: f.name.value, host: f.host.value, user: f.user.value, port: f.port.value, keyFile: f.keyFile.value, tags: f.tags.value, notes: f.notes.value, enabled: f.enabled.checked };
+    return { name: f.name.value, host: f.host.value, user: f.user.value, port: f.port.value, keyFile: f.keyFile.value, auth: f.auth.value, tags: f.tags.value, notes: f.notes.value, enabled: f.enabled.checked };
   };
   $("#srvForm").onsubmit = async (e) => {
     e.preventDefault();
@@ -826,7 +836,55 @@ rhel-app02.corp.local"></textarea>
   };
 }
 
+function renderKerberos(k) {
+  const kr = k.kerberos || {};
+  const realm = (kr.principal || "svc-trinity@KURUM.LOCAL").split("@")[1] || "KURUM.LOCAL";
+  const acct = (kr.principal || "svc-trinity@").split("@")[0];
+  const keytab = kr.keytab || "/etc/trinity/trinity.keytab";
+  const priv = k.privilege === "dzdo" ? "dzdo" : "sudo";
+  $("#keyTitle").textContent = "Kerberos (AD servis hesabı)";
+  $("#keyInfo").textContent = kr.principal || "hesap tanımsız";
+  const ticket = kr.valid
+    ? `<b class="status-ok">✓ Bilet geçerli</b>${kr.expires ? ` · bitiş ${esc(fmtTime(kr.expires))}` : ""}${kr.hostTickets?.length ? ` · ${kr.hostTickets.length} sunucu bileti` : ""}`
+    : `<b class="status-err">✕ Geçerli bilet yok</b>${kr.lastError ? ` · ${esc(kr.lastError)}` : " · ilk bağlantıda keytab ile alınır"}`;
+  const setup = `# 1) AD: servis hesabı + keytab (Centrify'lı bir Linux makinede, AD yetkilisiyle)
+adkeytab --new --upn ${acct}@${realm} --keytab ${keytab} --user <ad-yonetici> ${acct}
+#    veya Windows'ta:
+#    ktpass /princ ${acct}@${realm} /mapuser ${realm.split(".")[0]}\\${acct} /crypto AES256-SHA1 /ptype KRB5_NT_PRINCIPAL /pass * /out trinity.keytab
+#    Hesapta "This account supports Kerberos AES 256 bit encryption" işaretli olmalı.
+
+# 2) Trinity sunucusu: keytab'ı yalnızca servis kullanıcısı okusun
+chown <trinity-servis-kullanicisi> ${keytab} && chmod 600 ${keytab}
+dnf -y install krb5-workstation     # kinit / klist (Centrify adjoin'li makinede krb5.conf hazırdır)
+
+# 3) Centrify: ${acct} için zone'da hedef sunuculara giriş izni (login role)
+#    ve toplama komutları için parolasız ${priv} izni: journalctl, ausearch, needs-restarting
+
+# 4) Elle deneme (Trinity sunucusunda)
+KRB5CCNAME=FILE:/tmp/krb5cc_dene kinit -kt ${keytab} ${acct}@${realm}
+KRB5CCNAME=FILE:/tmp/krb5cc_dene ssh -o GSSAPIAuthentication=yes -o GSSAPIDelegateCredentials=no \\
+    -o PreferredAuthentications=gssapi-with-mic -l ${esc(k.user)} rhel-db01.${realm.toLowerCase()} 'id; ${priv} -n -l'`;
+  $("#keyBody").innerHTML = `
+    <div class="alert ${kr.valid ? "info" : "warn"}">${ticket}</div>
+    <p class="muted sm">Toplama <b>${esc(k.user)}</b> kullanıcısıyla, <code>${esc(keytab)}</code> keytab'ından alınan AD bileti ile yapılır; hedeflerde anahtar tutulmaz, erişim AD'de hesabı kapatarak kesilir.
+      Bilet karşı sunucuya kopyalanmaz. ${k.kerberosServers} sunucu Kerberos ile bağlanıyor. Kerberos IP adresiyle çalışmaz: adresler tam alan adı (FQDN) olmalı.</p>
+    <div class="toolbar"><button class="btn" id="krbRenew">${icon("refresh")}Bileti şimdi al</button></div>
+    <h4 class="sub-h">Kurulum</h4><div class="fix"><pre>${esc(setup)}</pre><button class="btn link sm copy" id="copyKrb">Kopyala</button></div>`;
+  $("#copyKrb").onclick = () => copyText(setup);
+  $("#krbRenew").onclick = async (e) => {
+    e.target.disabled = true;
+    try {
+      const r = await Api.kerberosRenew();
+      toast(r.ok ? "Kerberos bileti alındı" : r.error, !r.ok);
+      renderKerberos({ ...k, kerberos: r });
+    } catch (err) { toast(err.message, true); }
+    finally { e.target.disabled = false; }
+  };
+}
+
 function renderSshKey(k) {
+  if (k.auth === "kerberos") return renderKerberos(k);
+  $("#keyTitle").textContent = "SSH anahtarı";
   $("#keyInfo").textContent = k.exists ? k.keyFile : "anahtar bulunamadı";
   const setup = k.publicKey
     ? `# 1) Her hedef sunucuda (root) — merkez sunucunun IP'sini yazın:
@@ -1087,6 +1145,12 @@ function fillForm(form, obj) {
     else el.value = v ?? "";
   }
 }
+/** Ayarlar → SSH: seçili kimlik doğrulamaya göre anahtar / Kerberos alanları */
+function syncAuthFields() {
+  const v = $("#sshAuth").value;
+  $$("#sshForm [data-auth]").forEach((el) => el.classList.toggle("hidden", el.dataset.auth !== v));
+}
+
 function readForm(form) {
   const out = {};
   for (const el of form.elements) {
@@ -1130,6 +1194,7 @@ async function loadSettingsPage() {
     State.settings = s;
     renderConnection(c);
     fillForm($("#sshForm"), s);
+    syncAuthFields();
     renderThresholds(s.thresholds);
   } catch (e) { $("#connResult").innerHTML = errorView(e); }
 }
@@ -3066,11 +3131,13 @@ function bindEvents() {
     finally { b.disabled = false; }
   };
   $("#connTestChat").onclick = (e) => testConnection("chat", e.target);
+  $("#sshAuth").onchange = syncAuthFields;
   $("#sshForm").onsubmit = async (e) => {
     e.preventDefault();
     try {
       const f = readForm(e.target);
       State.settings = await Api.saveSettings(f);
+      State.sshDefaults = State.settings.ssh;
       toast("Ayarlar kaydedildi");
       checkHealth();
     } catch (err) { toast(err.message, true); }

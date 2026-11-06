@@ -1,7 +1,8 @@
 """Sunucu envanteri (Sunucular ekranından yönetilir, data/servers.json)
 
-  { name, host, port?, user?, keyFile?, tags[], enabled, notes }
-  port / user / keyFile boşsa Ayarlar → SSH'taki varsayılanlar kullanılır.
+  { name, host, port?, user?, keyFile?, auth?, tags[], enabled, notes }
+  port / user / keyFile / auth (key | kerberos) boşsa Ayarlar → SSH'taki varsayılanlar kullanılır;
+  auth sunucu bazında verilirse anahtardan Kerberos'a sunucu sunucu geçilebilir.
 
 Değerler ssh komutuna argüman olarak gider (kabuk kullanılmaz); yine de '-' ile başlayan
 (ssh seçeneği gibi yorumlanabilecek) adlar ve kontrol karakterleri reddedilir.
@@ -45,6 +46,7 @@ def validate(s: dict) -> dict:
         "port": None if port in ("", None) else port,
         "user": str(s.get("user") or "").strip() or None,
         "keyFile": str(s.get("keyFile") or "").strip() or None,
+        "auth": str(s.get("auth") or "").strip() or None,
         "tags": [t for t in (str(x).strip() for x in tags) if t][:20],
         "enabled": s.get("enabled") is not False,
         "notes": str(s.get("notes") or "")[:500],
@@ -64,6 +66,8 @@ def validate(s: dict) -> dict:
         raise ApiError(f"Geçersiz kullanıcı adı: '{out['user']}'")
     if out["keyFile"] and not KEY_RE.match(out["keyFile"]):
         raise ApiError("Anahtar dosyası mutlak yol olmalı")
+    if out["auth"] not in (None, "key", "kerberos"):
+        raise ApiError("Kimlik doğrulama boş (varsayılan), 'key' veya 'kerberos' olmalı")
     return out
 
 

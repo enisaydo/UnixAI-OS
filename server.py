@@ -27,7 +27,7 @@ from unixai.env import ROOT, env, load_env
 load_env()
 
 from unixai import (a2a, agent, live, oplog, tracing, analyzer, audit, auth, collector, connection, demo, diagnostics, genai, inventory,  # noqa: E402
-                    logger, mcp_hub, morpheus, notify, prompts, runs, satellite, settings, usage)
+                    kerberos, logger, mcp_hub, morpheus, notify, prompts, runs, satellite, settings, usage)
 from unixai.errors import ApiError  # noqa: E402
 
 PORT = int(env("PORT", "3000") or 3000)
@@ -79,6 +79,8 @@ def ssh_key_info() -> dict:
     except OSError:
         pub = None
     return {
+        "auth": s["auth"], "privilege": s["privilege"], "kerberos": kerberos.status(s) if s["auth"] == "kerberos" else None,
+        "kerberosServers": sum(1 for x in inventory.list_servers() if collector.auth_of(x, s) == "kerberos"),
         "keyFile": s["keyFile"], "user": s["user"], "exists": Path(s["keyFile"]).exists(), "publicKey": pub,
         "generate": f'ssh-keygen -t rsa -b 4096 -N "" -f {s["keyFile"]}',
         "targetSetup": f'bash target-setup.sh "{pub}" <merkez_sunucu_ip>' if pub else None,
@@ -123,9 +125,19 @@ def chat_context(ctx):
     return None
 
 
+def _ssh_health() -> dict:
+    s = settings.get()["ssh"]
+    out = {"auth": s["auth"], "privilege": s["privilege"]}
+    if s["auth"] == "kerberos":
+        k = kerberos.status(s)
+        out["kerberos"] = {"principal": k["principal"], "valid": k["valid"], "expires": k["expires"], "error": k["lastError"]}
+    return out
+
+
 def health(deep: bool) -> dict:
     out = {"status": "ok", "mode": mode(), "auth": auth.status(), "genai": genai.status(), "scheduler": runs.scheduler_status(),
            "servers": len(inventory.list_servers()), "morpheus": morpheus.status(), "satellite": satellite.status(), "notify": {"channels": notify.channels()},
+           "ssh": _ssh_health(),
            "agent": {"mode": agent.settings()["mode"], "detected": agent.settings().get("detected"), "connections": len(mcp_hub.connections_view())}}
     if deep and mode() == "genai":
         try:
@@ -547,6 +559,10 @@ class Handler(BaseHTTPRequestHandler):
             return j(200, {**settings.get(), "defaults": settings.DEFAULTS})
         if route == "POST /api/settings":
             return j(200, settings.save(body, who["user"]))
+        if route == "GET /api/settings/kerberos":
+            return j(200, kerberos.status(settings.get()["ssh"]))
+        if route == "POST /api/settings/kerberos/renew":
+            return j(200, kerberos.renew(settings.get()["ssh"]))
         if route == "GET /api/prompts":
             return j(200, {**prompts.get(), "defaults": prompts.DEFAULTS})
         if route == "POST /api/prompts":
@@ -680,7 +696,8 @@ def main():
     print("  Mod         →  " + (f"GENAI → token: {s['tokenHost']} · chat: {s['chatHost']} ({s['source']})" if mode() == "genai"
                                  else "DEMO (kural motoru) — GenAI adreslerini Ayarlar ekranından girin"))
     ssh = settings.get()["ssh"]
-    print(f"  Sunucular   →  {len(inventory.list_servers())} kayıtlı · SSH: {ssh['user']}@ · anahtar {ssh['keyFile']}")
+    cred = f"Kerberos {ssh['krbPrincipal'] or '(hesap tanımsız)'}" if ssh["auth"] == "kerberos" else f"anahtar {ssh['keyFile']}"
+    print(f"  Sunucular   →  {len(inventory.list_servers())} kayıtlı · SSH: {ssh['user']}@ · {cred} · yetki {ssh['privilege']}")
     sc = runs.scheduler_status()
     print(f"  Zamanlayıcı →  {'her gün ' + sc['time'] if sc['enabled'] else 'kapalı'}")
     au = auth.status()

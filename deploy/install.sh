@@ -23,7 +23,7 @@ if [[ -z "$PY" ]]; then
   dnf -y -q install python3.11 || dnf -y -q install python39
   PY=$(command -v python3.11 || command -v python3.9)
 fi
-dnf -y -q install openssh-clients openssl tzdata
+dnf -y -q install openssh-clients openssl tzdata krb5-workstation  # krb5: Kerberos ile toplama için kinit / klist
 echo "    $("$PY" --version) ($PY)"
 
 echo "==> Uygulama dosyaları"

@@ -1,6 +1,7 @@
 """Uygulama ayarları (Ayarlar ekranından yönetilir, data/settings.json)
 
-  ssh        : varsayılan SSH kullanıcısı (root), anahtar dosyası, host key politikası, zaman aşımları
+  ssh        : varsayılan SSH kullanıcısı (root), kimlik doğrulama (anahtar / Kerberos), yetki yükseltme (sudo / dzdo),
+               host key politikası, zaman aşımları
   schedule   : günlük otomatik toplama saati; vulnScan → ardından zafiyet torbası taraması (Satellite bağlıysa)
   analysis   : AI analizi, filo özeti, IP maskeleme, saklama süresi
   thresholds : kural motoru eşikleri
@@ -11,7 +12,7 @@ import copy
 import os
 import re
 
-from . import rules
+from . import kerberos, rules
 from .errors import ApiError
 from .store import iso_now, read_json, write_json
 
@@ -21,6 +22,10 @@ DEFAULTS = {
     "ssh": {
         "user": os.environ.get("SSH_USER", "root"),
         "keyFile": os.environ.get("SSH_KEY_FILE", "/root/.ssh/id_rsa"),
+        "auth": os.environ.get("SSH_AUTH", "key"),  # key: -i keyFile · kerberos: keytab ile alınan AD bileti (GSSAPI)
+        "krbPrincipal": os.environ.get("KRB_PRINCIPAL", ""),
+        "krbKeytab": os.environ.get("KRB_KEYTAB", "/etc/trinity/trinity.keytab"),
+        "privilege": os.environ.get("SSH_PRIVILEGE", "sudo"),  # root değilse: sudo -n · dzdo -n (Centrify)
         "port": 22,
         "hostKeyPolicy": "yes",  # yes: known_hosts'ta olmalı · accept-new: ilk bağlantıda kaydet
         "connectTimeout": 15,
@@ -66,6 +71,16 @@ def save(data: dict, user=None) -> dict:
         raise ApiError("Geçersiz SSH kullanıcı adı")
     if not re.match(r"^/[^\0\n\r]+$", str(ssh["keyFile"])):
         raise ApiError("SSH anahtar dosyası mutlak yol olmalı (ör. /root/.ssh/id_rsa)")
+    if ssh["auth"] not in ("key", "kerberos"):
+        raise ApiError("Kimlik doğrulama 'key' veya 'kerberos' olmalı")
+    if ssh["privilege"] not in ("sudo", "dzdo"):
+        raise ApiError("Yetki yükseltme 'sudo' veya 'dzdo' olmalı")
+    ssh["krbPrincipal"] = str(ssh.get("krbPrincipal") or "").strip()
+    ssh["krbKeytab"] = str(ssh.get("krbKeytab") or "").strip()
+    if (ssh["auth"] == "kerberos" or ssh["krbPrincipal"]) and not kerberos.PRINCIPAL_RE.match(ssh["krbPrincipal"]):
+        raise ApiError("Kerberos hesabı svc-trinity@KURUM.LOCAL biçiminde olmalı (alan adı büyük harf)")
+    if (ssh["auth"] == "kerberos" or ssh["krbKeytab"]) and not (os.path.isabs(ssh["krbKeytab"]) and not re.search(r"[\0\n\r]", ssh["krbKeytab"])):
+        raise ApiError("Keytab mutlak yol olmalı (ör. /etc/trinity/trinity.keytab)")
     if ssh["hostKeyPolicy"] not in ("yes", "accept-new"):
         raise ApiError("Geçersiz host key politikası")
     ssh["port"] = int(_num(ssh["port"], "SSH portu", 1, 65535))

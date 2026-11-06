@@ -276,7 +276,7 @@
           <div class="table-wrap"><table class="table" id="invTable"></table></div>
         </div>
         <div class="card narrow">
-          <div class="card-head"><h3><svg class="i" data-icon="key"></svg>SSH anahtarı</h3><span class="muted sm mono" id="keyInfo"></span></div>
+          <div class="card-head"><h3><svg class="i" data-icon="key"></svg><span id="keyTitle">SSH anahtarı</span></h3><span class="muted sm mono" id="keyInfo"></span></div>
           <div id="keyBody"></div>
         </div>
       </section>
@@ -664,10 +664,30 @@
             <div class="card-head"><h3><svg class="i" data-icon="terminal"></svg>SSH (agentless toplama)</h3></div>
             <form id="sshForm" class="form">
               <div class="grid-2">
-                <label>Kullanıcı<input class="input" name="ssh.user" /><small>Varsayılan root</small></label>
+                <label>Kimlik doğrulama
+                  <select class="input" name="ssh.auth" id="sshAuth">
+                    <option value="key">SSH anahtarı</option>
+                    <option value="kerberos">Kerberos (AD servis hesabı)</option>
+                  </select>
+                </label>
+                <label>Yetki yükseltme
+                  <select class="input" name="ssh.privilege">
+                    <option value="sudo">sudo -n</option>
+                    <option value="dzdo">dzdo -n (Centrify)</option>
+                  </select>
+                  <small>Kullanıcı root değilse ayrıcalıklı okuma komutları için</small>
+                </label>
+              </div>
+              <div class="grid-2">
+                <label>Kullanıcı<input class="input" name="ssh.user" /><small data-auth="key">Varsayılan root</small><small data-auth="kerberos">AD servis hesabının Linux kullanıcı adı (ör. svc-trinity)</small></label>
                 <label>Port<input class="input" name="ssh.port" type="number" min="1" max="65535" /></label>
               </div>
-              <label>Anahtar dosyası<input class="input mono" name="ssh.keyFile" /></label>
+              <label data-auth="key">Anahtar dosyası<input class="input mono" name="ssh.keyFile" /></label>
+              <div class="grid-2" data-auth="kerberos">
+                <label>Kerberos hesabı<input class="input mono" name="ssh.krbPrincipal" placeholder="svc-trinity@KURUM.LOCAL" /><small>Alan adı büyük harf</small></label>
+                <label>Keytab<input class="input mono" name="ssh.krbKeytab" placeholder="/etc/trinity/trinity.keytab" /><small>chmod 600, sahibi Trinity servis kullanıcısı</small></label>
+              </div>
+              <div data-auth="kerberos" class="muted sm">Sunuculara tam alan adıyla (FQDN) bağlanılır; bilet durumu ve kurulum adımları <a href="#/servers">Sunucular</a> ekranında. Sunucu bazında anahtara dönmek için sunucuyu düzenleyin.</div>
               <label>Host key politikası
                 <select class="input" name="ssh.hostKeyPolicy">
                   <option value="yes">known_hosts'ta olmalı (önerilir)</option>

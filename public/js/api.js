@@ -107,6 +107,8 @@ const Api = (() => {
     testConnection: (step) => request("/connection/test", { method: "POST", body: { step } }),
     settings: () => request("/settings"),
     saveSettings: (s) => request("/settings", { method: "POST", body: s }),
+    kerberos: () => request("/settings/kerberos"),
+    kerberosRenew: () => request("/settings/kerberos/renew", { method: "POST", body: {} }),
     prompts: () => request("/prompts"),
     savePrompts: (system) => request("/prompts", { method: "POST", body: { system } }),
 
@@ -160,7 +162,8 @@ GET  /api/audit?from=&to=&user=&q=&failed=1  → işlem kayıtları (kim, ne zam
 GET  /api/connection             → GenAI bağlantısı (gizli alanlar maskeli)
 POST /api/connection             ← { tms: { url, method, body, headers[] }, chat: { url, model, modelField, headers[], bodyExtra }, insecureTls, timeoutMs }
 POST /api/connection/test        ← { step: "token"|"chat" }   → { token: { ok }, chat?: { ok, reply } }
-GET  /api/settings / POST        ← { ssh, schedule, analysis, thresholds }
+GET  /api/settings / POST        ← { ssh, schedule, analysis, thresholds }   ssh.auth: key|kerberos · ssh.privilege: sudo|dzdo
+GET  /api/settings/kerberos      → bilet durumu   POST /api/settings/kerberos/renew → keytab ile yeni bilet
 GET  /api/prompts / POST         ← { system }
 GET  /api/usage?from=&to=&user=&kind=   GET /api/usage/today   GET|POST /api/limits
 GET  /api/logs                   GET /api/logs/:id   (GenAI istek/cevapları, gizli alanlar maskeli)
